@@ -3642,28 +3642,29 @@ def sync_lrcred_lyrics(title, artist, duration=0, isrc=None):
 
 @app.get('/lyrics')
 async def get_lyrics(artist: str, title: str, album: str = None, duration: str = None, isrc: str = None):
-    # lrc.red (mot à mot) est prioritaire ; YouTube + LRCLib partent EN PARALLÈLE en secours,
-    # pour ne pas perdre de temps si lrc.red n'a pas le titre.
+    # Ordre de priorité : sources LRC d'abord (lrc.red mot à mot, puis LRCLib), YouTube en dernier
+    # recours. Les trois partent EN PARALLÈLE pour ne pas perdre de temps quand une source n'a pas le titre.
     dur = parse_duration(duration)
     _red_task = asyncio.create_task(run_in_threadpool(sync_lrcred_lyrics, title, artist, dur, isrc))
-    _yt_task = asyncio.create_task(run_in_threadpool(sync_search_yt_lyrics, title, artist))
     _lrc_task = asyncio.create_task(run_in_threadpool(lyrics_engine.search_lyrics, artist, title, album, dur))
+    _yt_task = asyncio.create_task(run_in_threadpool(sync_search_yt_lyrics, title, artist))
     try: red = await _red_task
     except Exception: red = None
     if red:
-        _yt_task.cancel(); _lrc_task.cancel()
+        _lrc_task.cancel(); _yt_task.cancel()
         return JSONResponse(red)
-    try: yt_res = await _yt_task
-    except Exception: yt_res = None
-    if yt_res and yt_res['type'] == 'synced':
-        _lrc_task.cancel()
-        return JSONResponse({"type": "synced", "lyrics": yt_res['lyrics'], "source": "YouTube"})
     lrc_plain, lrc_synced = None, None
     try: lrc_plain, lrc_synced = await _lrc_task
     except Exception: pass
-    if lrc_synced: return JSONResponse({"type": "synced", "lyrics": lrc_synced, "source": "LRCLib"})
-    if yt_res and yt_res['type'] == 'plain': return JSONResponse({"type": "plain", "lyrics": yt_res['lyrics'], "source": "YouTube"})
+    if lrc_synced:
+        _yt_task.cancel()
+        return JSONResponse({"type": "synced", "lyrics": lrc_synced, "source": "LRCLib"})
+    try: yt_res = await _yt_task
+    except Exception: yt_res = None
+    # Une version synchronisée (même YouTube) reste préférable à un texte brut
+    if yt_res and yt_res['type'] == 'synced': return JSONResponse({"type": "synced", "lyrics": yt_res['lyrics'], "source": "YouTube"})
     if lrc_plain: return JSONResponse({"type": "plain", "lyrics": lrc_plain, "source": "LRCLib"})
+    if yt_res and yt_res['type'] == 'plain': return JSONResponse({"type": "plain", "lyrics": yt_res['lyrics'], "source": "YouTube"})
     raise HTTPException(404, "No lyrics")
 
 # --- STATIC FILES ---
