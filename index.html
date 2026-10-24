@@ -1,0 +1,3571 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="referrer" content="no-referrer">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Zenith</title>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#07070a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/4472/4472584.png">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235eead4'/%3E%3Cstop offset='1' stop-color='%237c5cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Ctext x='16' y='23' font-size='21' font-family='Arial' font-weight='700' text-anchor='middle' fill='%2307070a'%3E%E2%88%9E%3C/text%3E%3C/svg%3E">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Manrope:wght@400..800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="magic.css">
+
+    <!-- Leaflet (carte des souvenirs) + clustering -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+    <!-- SHAKA PLAYER pour DASH/HLS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
+    <script src="cast.js"></script>
+    <script src="zenith-processor.js"></script>
+    <script>
+        // Couleur d'accent choisie (appliquée avant le premier rendu pour éviter un flash)
+        try { const a = JSON.parse(localStorage.getItem('zenith_accent') || 'null'); if (a && a.hex) { document.documentElement.style.setProperty('--primary', a.hex); document.documentElement.style.setProperty('--primary-rgb', a.rgb); document.documentElement.style.setProperty('--primary-ink', a.ink); } } catch (e) { }
+    </script>
+</head>
+
+<body>
+    <div id="ambientBg"></div>
+    <div id="ambientOverlay"></div>
+    <div id="orbitVisual" class="orbit-orb"></div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite">Action effectuée</div>
+
+    <!-- ============ CONNEXION ============ -->
+    <div id="loginScreen" class="login-screen">
+        <div class="login-aurora"><span></span><span></span><span></span></div>
+        <div class="login-shell">
+            <section class="login-hero">
+                <div class="brand-lockup">
+                    <div class="brand-mark"><i class="fas fa-infinity"></i></div>
+                    <span class="brand-name">Zenith</span>
+                </div>
+                <h1 class="login-title">Votre musique,<br><em>qualité studio.</em></h1>
+                <p class="login-tagline">Des millions de titres en FLAC jusqu'au 24 bits, des paroles synchronisées et des
+                    écoutes partagées avec vos amis.</p>
+                <ul class="login-features">
+                    <li><i class="fas fa-wave-square"></i> Hi-Res Lossless</li>
+                    <li><i class="fas fa-microphone-alt"></i> Paroles en direct</li>
+                    <li><i class="fas fa-users"></i> Party Mode</li>
+                    <li><i class="fas fa-map-marked-alt"></i> Carte des souvenirs</li>
+                </ul>
+            </section>
+
+            <div class="login-card">
+                <h2 id="authTitle">Connexion</h2>
+                <p class="login-sub">Content de vous revoir.</p>
+
+                <button id="btnSpotifyAction" class="btn-spotify" onclick="loginWithSpotify()">
+                    <i class="fab fa-spotify"></i> Continuer avec Spotify
+                </button>
+
+                <div class="login-divider">ou par e-mail</div>
+
+                <input type="text" id="username" class="login-input" placeholder="Nom d'utilisateur" style="display:none;"
+                    autocomplete="username"
+                    onkeypress="if(event.key==='Enter') document.getElementById('email').focus()">
+                <input type="email" id="email" class="login-input" placeholder="Adresse e-mail" autocomplete="email"
+                    onkeypress="if(event.key==='Enter') document.getElementById('password').focus()">
+                <input type="password" id="password" class="login-input" placeholder="Mot de passe"
+                    autocomplete="current-password"
+                    onkeypress="if(event.key==='Enter') isLoginMode ? login(document.getElementById('email').value, this.value) : signup(document.getElementById('email').value, this.value)">
+                <button id="btnLoginAction" class="login-btn"
+                    onclick="isLoginMode ? login(document.getElementById('email').value, document.getElementById('password').value) : signup(document.getElementById('email').value, document.getElementById('password').value)">Se
+                    connecter</button>
+                <p id="authMessage"></p>
+                <div id="btnToggleMode" class="login-toggle" onclick="toggleAuthMode()">Pas de compte ? <b>Créer un
+                        compte</b></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ MODALES ============ -->
+    <div id="createPlaylistModal" class="modal" style="display:none;" onclick="if(event.target===this) closeCreatePlaylistModal()">
+        <div class="modal-card">
+            <div class="modal-head">
+                <div>
+                    <h2>Nouvelle playlist</h2>
+                    <p>Donnez-lui un nom, vous pourrez le changer plus tard.</p>
+                </div>
+                <button class="modal-close" onclick="closeCreatePlaylistModal()" title="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <input type="text" id="newPlaylistName" class="login-input" placeholder="Ma playlist du dimanche"
+                onkeypress="if(event.key==='Enter') createPlaylist()">
+            <label class="field-row">
+                <div><strong>Publique</strong><span>Visible et cherchable par tous</span></div>
+                <span class="switch"><input type="checkbox" id="newPlaylistPublic"><span class="slider round"></span></span>
+            </label>
+            <div class="btn-row">
+                <button class="login-btn btn-ghost" onclick="closeCreatePlaylistModal()">Annuler</button>
+                <button class="login-btn" onclick="createPlaylist()">Créer</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="editPlaylistModal" class="modal" style="display:none;" onclick="if(event.target===this) closeEditPlaylistModal()">
+        <div class="modal-card">
+            <div class="modal-head">
+                <h2>Modifier la playlist</h2>
+                <button class="modal-close" onclick="closeEditPlaylistModal()" title="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <input type="text" id="editPlaylistName" class="login-input" placeholder="Nom de la playlist">
+            <label class="field-row">
+                <div><strong>Publique</strong><span>Visible et cherchable par tous</span></div>
+                <span class="switch"><input type="checkbox" id="editPlaylistPublic"><span class="slider round"></span></span>
+            </label>
+            <div class="btn-row">
+                <button class="login-btn btn-ghost" onclick="closeEditPlaylistModal()">Annuler</button>
+                <button class="login-btn" onclick="savePlaylistEdits()">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="memoryModal" class="modal" style="display:none;" onclick="if(event.target===this) closeMemoryModal()">
+        <div class="modal-card">
+            <div class="modal-head">
+                <div>
+                    <h2>Épingler un souvenir</h2>
+                    <p>Attaché à cette musique pour toujours</p>
+                </div>
+                <button class="modal-close" onclick="closeMemoryModal()" title="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="memoryTrackPreview" class="memory-preview">
+                <img id="memoryTrackArt" src="" alt="">
+                <div>
+                    <div id="memoryTrackTitle"></div>
+                    <div id="memoryTrackArtist"></div>
+                </div>
+            </div>
+            <textarea id="memoryNoteInput" placeholder="Ce souvenir me rappelle…"></textarea>
+            <label class="memory-photo-drop">
+                <i class="fas fa-image"></i>
+                <span id="memoryPhotoLabel">Ajouter une photo (optionnel)</span>
+                <input type="file" id="memoryPhotoInput" accept="image/*" style="display:none;" onchange="previewMemoryPhoto(this)">
+            </label>
+            <img id="memoryPhotoPreview" src="" alt="" style="display:none;">
+            <p class="memory-privacy"><i class="fas fa-shield-alt"></i> Vos photos sont hébergées par un service tiers
+                indépendant. Zenith ne conserve aucune image sur sa propre infrastructure.</p>
+            <div class="memory-location">
+                <i class="fas fa-map-marker-alt"></i>
+                <span id="memoryLocationText">Récupération de la position…</span>
+            </div>
+            <div class="btn-row">
+                <button class="login-btn btn-ghost" onclick="closeMemoryModal()">Annuler</button>
+                <button class="login-btn" id="btnSaveMemory" onclick="saveMemory()"><i class="fas fa-thumbtack"></i> Épingler</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="addToPlaylistModal" class="modal" style="display:none;" onclick="if(event.target===this) closeAddToPlaylistModal()">
+        <div class="modal-card">
+            <div class="modal-head">
+                <h2>Ajouter à une playlist</h2>
+                <button class="modal-close" onclick="closeAddToPlaylistModal()" title="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="addToPlaylistList"></div>
+            <button class="login-btn btn-ghost" onclick="closeAddToPlaylistModal(); showPlaylists(); openCreatePlaylistModal();"><i class="fas fa-plus"></i> Nouvelle playlist</button>
+        </div>
+    </div>
+
+    <div id="partyModal" class="modal" style="display:none;" onclick="if(event.target===this) Party.closeModal()">
+        <div class="modal-card tall">
+            <div class="modal-head">
+                <div>
+                    <h2>Party Mode</h2>
+                    <p>Écoutez en synchro avec vos amis</p>
+                </div>
+                <button class="modal-close" onclick="Party.closeModal()" title="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="partySetupContainer">
+                <p class="party-intro">Créez une room et partagez son code : tout le monde entend la même chose, au même moment, et peut discuter.</p>
+                <button class="login-btn" onclick="Party.createRoom()"><i class="fas fa-plus"></i> Créer une room</button>
+                <div class="party-or">OU</div>
+                <input type="text" id="partyJoinCode" class="login-input" placeholder="Code (ex : A4Z9)" maxlength="8"
+                    onkeypress="if(event.key==='Enter') Party.joinRoom(this.value)">
+                <button class="login-btn btn-ghost" onclick="Party.joinRoom(document.getElementById('partyJoinCode').value)">Rejoindre</button>
+            </div>
+            <div id="partyActiveContainer" style="display:none;">
+                <div class="party-room-head">
+                    <div>
+                        <small>ROOM</small>
+                        <div id="partyCodeDisplay">ABCD</div>
+                    </div>
+                    <div>
+                        <button class="action-btn-mini" onclick="Party.copyLink()" title="Copier le lien"><i class="fas fa-link"></i></button>
+                        <button class="action-btn-mini" style="color:var(--secondary);" onclick="Party.leaveRoom()" title="Quitter"><i class="fas fa-power-off"></i></button>
+                    </div>
+                </div>
+                <div class="chat-box-container" id="partyChatList"></div>
+                <div class="chat-input-area">
+                    <input type="text" id="partyChatInput" class="chat-input" placeholder="Votre message…"
+                        onkeypress="if(event.key==='Enter') Party.sendChat()">
+                    <button class="chat-send-btn" onclick="Party.sendChat()" title="Envoyer"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="introContainer" class="intro-container">
+        <div id="introText" class="intro-text">Début des paroles</div>
+        <div class="intro-bar-bg">
+            <div id="introBarFill" class="intro-bar-fill"></div>
+        </div>
+    </div>
+
+    <!-- ============ APPLICATION ============ -->
+    <div class="app-layout">
+        <nav class="sidebar" id="sidebar" aria-label="Navigation principale">
+            <div class="sheet-handle"></div>
+            <div class="brand-lockup">
+                <div class="brand-mark"><i class="fas fa-infinity"></i></div>
+                <span class="brand-name">Zenith</span>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-label">Découvrir</div>
+                <div class="nav-item active" data-nav="home" onclick="goHome()" title="Accueil"><i class="fas fa-house"></i><span>Accueil</span></div>
+                <div class="nav-item" data-nav="top" onclick="showWeeklyTop()" title="Top 10 de la semaine"><i class="fas fa-trophy"></i><span>Top 10 semaine</span></div>
+                <div class="nav-item" data-nav="countries" onclick="showTopCountries()" title="Top des pays"><i class="fas fa-earth-europe"></i><span>Top des pays</span></div>
+                <div class="nav-item" data-nav="blindtest" onclick="startBlindTest()" title="Blind test"><i class="fas fa-gamepad"></i><span>Blind test</span></div>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-label">Bibliothèque</div>
+                <div class="nav-item" data-nav="favorites" onclick="showFavorites()" title="Favoris"><i class="fas fa-heart"></i><span>Favoris</span></div>
+                <div class="nav-item" data-nav="playlists" onclick="showPlaylists()" title="Mes playlists"><i class="fas fa-layer-group"></i><span>Playlists</span></div>
+                <div class="nav-item" data-nav="history" onclick="showHistory()" title="Historique"><i class="fas fa-clock-rotate-left"></i><span>Historique</span></div>
+                <div class="nav-item" data-nav="memories" onclick="showMemories()" title="Mes souvenirs"><i class="fas fa-bookmark"></i><span>Souvenirs</span></div>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-label">Écoute</div>
+                <div class="nav-item" onclick="toggleQueue()" title="File d'attente"><i class="fas fa-list-ol"></i><span>File d'attente</span></div>
+                <div class="nav-item lyrics-btn" onclick="toggleLyrics()" title="Paroles (V)"><i class="fas fa-microphone-alt"></i><span>Paroles</span></div>
+                <div class="nav-item" onclick="toggleEQ()" title="Audio FX"><i class="fas fa-sliders-h"></i><span>Audio FX</span></div>
+                <div class="nav-item" id="btnPartyMenu" onclick="Party.openModal()" title="Party Mode">
+                    <i class="fas fa-users"></i><span>Party Mode</span>
+                    <div id="partyBadge" class="nav-badge">0</div>
+                </div>
+                <div class="nav-item" onclick="BluetoothManager.toggle()" title="Bluetooth"><i class="fab fa-bluetooth-b" id="btBtnIcon"></i><span>Bluetooth</span></div>
+                <div class="nav-item" onclick="ZenithCast.triggerMenu()" title="Caster sur TV"><i class="fab fa-chromecast" id="castBtnIcon"></i><span>Caster</span></div>
+            </div>
+
+            <div class="nav-footer">
+                <div class="nav-item" data-nav="profile" onclick="showProfileSettings()" title="Compte et paramètres"><i class="fas fa-circle-user"></i><span>Compte</span></div>
+                <div class="nav-item danger" onclick="logout()" title="Déconnexion"><i class="fas fa-arrow-right-from-bracket"></i><span>Déconnexion</span></div>
+            </div>
+        </nav>
+
+        <main class="main-feed">
+            <div class="search-container" id="searchBarContainer">
+                <div class="search-field">
+                    <i class="fas fa-search"></i>
+                    <input type="search" id="searchInput" class="search-input" placeholder="Titres, artistes, albums, playlists…" autocomplete="off" enterkeyhint="search">
+                    <button class="search-btn" id="btnSearch" onclick="performSearch()"><span>Rechercher</span><i class="fas fa-arrow-right"></i></button>
+                </div>
+                <div class="search-filters">
+                    <select id="searchType" class="visually-hidden" tabindex="-1" aria-hidden="true">
+                        <option value="all">Tout</option>
+                        <option value="track">Titres</option>
+                        <option value="album">Albums</option>
+                        <option value="playlist">Playlists</option>
+                        <option value="artist">Artistes</option>
+                    </select>
+                    <button class="chip active" data-type="all" onclick="setSearchType('all')">Tout</button>
+                    <button class="chip" data-type="track" onclick="setSearchType('track')">Titres</button>
+                    <button class="chip" data-type="album" onclick="setSearchType('album')">Albums</button>
+                    <button class="chip" data-type="playlist" onclick="setSearchType('playlist')">Playlists</button>
+                    <button class="chip" data-type="artist" onclick="setSearchType('artist')">Artistes</button>
+                    <label class="sort-wrap">
+                        <span>Trier</span>
+                        <select id="searchSort" class="search-select" onchange="applySearchSort()">
+                            <option value="relevance">Pertinence</option>
+                            <option value="date_desc">Plus récents</option>
+                            <option value="date_asc">Plus anciens</option>
+                            <option value="alpha_asc">A → Z</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="track-view" id="trackView">
+                <div class="header-controls">
+                    <button class="back-btn-main" onclick="goBack()" title="Retour"><i class="fas fa-arrow-left"></i></button>
+                    <h2 id="viewTitle">Accueil</h2>
+                    <div class="view-actions" id="viewActions"></div>
+                </div>
+                <div class="bento-grid" id="trackGrid"></div>
+            </div>
+
+            <div class="track-view" id="allPlaylistsView" style="display:none;">
+                <div class="header-controls">
+                    <button class="back-btn-main" onclick="goHome()" title="Retour"><i class="fas fa-arrow-left"></i></button>
+                    <h2>Mes playlists</h2>
+                    <div class="view-actions">
+                        <button class="pill-btn accent" onclick="openCreatePlaylistModal()"><i class="fas fa-plus"></i> Nouvelle</button>
+                    </div>
+                </div>
+                <div class="bento-grid" id="allPlaylistsGrid"></div>
+            </div>
+
+            <div class="track-view" id="playlistView" style="display:none;">
+                <div class="header-controls">
+                    <button class="back-btn-main" onclick="goBack()" title="Retour"><i class="fas fa-arrow-left"></i></button>
+                    <h2 id="playlistTitle">Ma playlist</h2>
+                    <div class="view-actions" id="playlistActions"></div>
+                </div>
+                <div class="bento-grid" id="playlistGrid"></div>
+            </div>
+
+            <div class="artist-view" id="artistView">
+                <div class="header-controls">
+                    <button class="back-btn-main" onclick="goBack()" title="Retour"><i class="fas fa-arrow-left"></i></button>
+                </div>
+                <div class="artist-header-content">
+                    <img id="artistHeaderBg" class="artist-header-bg" alt="">
+                    <div class="artist-header-shade"></div>
+                    <img id="artistProfileImg" class="artist-profile-img" alt=""
+                        src="https://placehold.co/200x200/1a1a1a/666666?text=Artist">
+                    <div class="artist-info">
+                        <div class="artist-kicker"><i class="fas fa-circle-check"></i> Artiste</div>
+                        <h1 id="artistProfileName" class="artist-name-large">Artiste</h1>
+                        <div id="artistFans" class="artist-fans-badge" style="display:none;"><i class="fas fa-users"></i> 0 fans</div>
+                        <p id="artistProfileBio" class="artist-bio"></p>
+                    </div>
+                </div>
+
+                <div class="artist-content-container">
+                    <div class="section-title"><i class="fas fa-fire"></i> Titres populaires</div>
+                    <div class="track-list" id="artistTopTracks"></div>
+
+                    <div class="section-title"><i class="fas fa-compact-disc"></i> Albums</div>
+                    <div class="bento-grid" id="artistAlbums"></div>
+                </div>
+            </div>
+
+            <div class="lyrics-view" id="lyricsView">
+                <div class="lyrics-header-actions">
+                    <button class="translate-btn" id="btnTranslate" onclick="toggleTranslation()">
+                        <i class="fas fa-language"></i> Traduire
+                    </button>
+                </div>
+                <div id="lyricsContent">
+                    <div class="lyrics-placeholder">Lancez un titre pour afficher ses paroles.</div>
+                </div>
+            </div>
+
+            <div class="lyrics-view" id="blindTestView" style="display: none;"></div>
+
+            <div class="track-view" id="memoriesView" style="display:none;">
+                <div class="header-controls">
+                    <button class="back-btn-main" onclick="goHome()" title="Retour"><i class="fas fa-arrow-left"></i></button>
+                    <h2>Mes souvenirs</h2>
+                    <div class="memories-actions">
+                        <button onclick="openMemoriesReel()" class="reel-trigger-btn"><i class="fas fa-film"></i> Il y a 1 an</button>
+                        <button onclick="openMemoriesReelTest()" class="reel-trigger-btn rose" title="Lecture aléatoire de tous vos souvenirs"><i class="fas fa-shuffle"></i> Rétrospective</button>
+                        <button onclick="openMemoriesMap()" class="reel-trigger-btn cyan" title="Voir tous vos souvenirs sur une carte"><i class="fas fa-map-marked-alt"></i> Carte</button>
+                    </div>
+                </div>
+                <div id="memoriesFeed"></div>
+            </div>
+
+            <div class="profile-view" id="profileView">
+                <div class="profile-container">
+                    <h2 class="profile-title">Compte &amp; paramètres</h2>
+
+                    <div class="profile-card">
+                        <div class="profile-avatar-wrapper" onclick="triggerAvatarUpload()" title="Changer la photo">
+                            <img src="https://placehold.co/400x400/1a1a1a/666666?text=U" id="profileAvatarPreview" class="profile-avatar" alt="">
+                            <div class="profile-avatar-overlay"><i class="fas fa-camera"></i></div>
+                            <input type="file" id="profileAvatarInput" accept="image/*" style="display: none;">
+                        </div>
+                        <div class="profile-card-body">
+                            <div class="form-group">
+                                <label class="form-label" for="profileUsername">Nom d'utilisateur</label>
+                                <input type="text" id="profileUsername" class="form-input" placeholder="Votre pseudo">
+                            </div>
+                            <button class="save-btn" id="btnSaveProfile" onclick="updateProfile()">Enregistrer</button>
+                        </div>
+                    </div>
+
+                    <section class="settings-section">
+                        <div class="settings-section-title"><i class="fas fa-headphones"></i> Audio</div>
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <strong style="color:var(--limiter-green);"><i class="fab fa-bluetooth-b"></i> Mode audio direct</strong>
+                                <span>Lecture sans coupure (Bluetooth, voiture). Désactive l'égaliseur et les effets.</span>
+                            </div>
+                            <label class="switch"><input type="checkbox" id="settingDirectAudio" onchange="changeSetting('directAudio', this.checked)"><span class="slider round"></span></label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <strong>Normalisateur au démarrage</strong>
+                                <span>Égalise le volume entre les titres.</span>
+                            </div>
+                            <label class="switch"><input type="checkbox" id="settingLimiter" onchange="changeSetting('limiter', this.checked)"><span class="slider round"></span></label>
+                        </div>
+                        <div class="setting-row stacked">
+                            <div class="setting-head">
+                                <div class="setting-text"><strong>Fondu enchaîné</strong><span>Durée du crossfade entre deux titres.</span></div>
+                                <span id="settingCrossfadeVal" class="setting-value">0s</span>
+                            </div>
+                            <input type="range" class="settings-slider" id="settingCrossfade" min="0" max="12" step="1" oninput="changeSetting('crossfade', this.value)">
+                        </div>
+                    </section>
+
+                    <section class="settings-section">
+                        <div class="settings-section-title"><i class="fas fa-palette"></i> Apparence</div>
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <strong>Couleur d'accent</strong>
+                                <span>Boutons, liens et éléments actifs.</span>
+                            </div>
+                            <div class="accent-swatches" id="accentSwatches"></div>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <strong>Effets magiques</strong>
+                                <span>Thèmes visuels déclenchés par certains titres.</span>
+                            </div>
+                            <label class="switch"><input type="checkbox" id="settingMagic" onchange="changeSetting('magic', this.checked)"><span class="slider round"></span></label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-text">
+                                <strong>Mode éco</strong>
+                                <span>Pour tablettes et PC lents : désactive flous et animations.</span>
+                            </div>
+                            <label class="switch"><input type="checkbox" id="settingEcoMode" onchange="changeSetting('eco', this.checked)"><span class="slider round"></span></label>
+                        </div>
+                    </section>
+
+                    <section class="settings-section">
+                        <div class="settings-section-title"><i class="fas fa-keyboard"></i> Raccourcis clavier</div>
+                        <div class="shortcut-grid">
+                            <div class="shortcut"><kbd>Espace</kbd> Lecture / pause</div>
+                            <div class="shortcut"><kbd>←</kbd><kbd>→</kbd> −5 s / +5 s</div>
+                            <div class="shortcut"><kbd>↑</kbd><kbd>↓</kbd> Volume</div>
+                            <div class="shortcut"><kbd>F</kbd> Mode zen</div>
+                        </div>
+                    </section>
+
+                    <section class="settings-section">
+                        <div class="settings-section-title"><i class="fas fa-screwdriver-wrench"></i> Maintenance</div>
+                        <div class="maintenance-row">
+                            <button class="login-btn btn-danger-outline" id="btnFixSpotify" onclick="fixSpotifyTags()">Réparer les badges Spotify</button>
+                            <button class="login-btn btn-outline" id="btnMigrateTidal" onclick="migrateTidalLegacy()">Migrer les anciens titres Tidal</button>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+
+        <aside class="right-panel" id="rightPanel" aria-label="Lecture en cours">
+            <div class="np-topbar">
+                <button class="icon-btn np-close" onclick="closeNowPlaying()" title="Réduire"><i class="fas fa-chevron-down"></i></button>
+                <span class="np-label">Lecture en cours</span>
+                <button class="icon-btn" onclick="toggleQueue()" title="File d'attente"><i class="fas fa-list-ol"></i></button>
+            </div>
+            <div class="rp-header">
+                <div class="xl-image-wrapper">
+                    <div id="xlBadge" class="xl-badge smooth-fade">HI-RES</div>
+                    <img src="https://placehold.co/600x600/17171d/3a3a46?text=Zenith" id="xlArt" class="album-art-xl smooth-fade" alt="">
+                </div>
+                <div class="np-meta">
+                    <h2 id="xlTitle" class="smooth-fade">Prêt à écouter</h2>
+                    <p id="xlArtist" class="smooth-fade" onclick="if(tracks[currentIndex]) { closeNowPlaying(); openArtistProfile(tracks[currentIndex].performer.name, tracks[currentIndex].artist_id, tracks[currentIndex].source); }">Choisissez un titre</p>
+                    <p id="xlQuality" class="np-quality"></p>
+                </div>
+            </div>
+
+            <section class="up-next" id="upNext">
+                <div class="up-next-head">
+                    <h3>À suivre</h3>
+                    <button class="link-btn" onclick="toggleQueue()">Tout voir</button>
+                </div>
+                <div id="upNextList"></div>
+            </section>
+
+            <div class="wand-container" id="wandContainer">
+                <div class="wand-light"></div>
+                <div class="magic-wand"></div>
+            </div>
+
+            <div id="queuePanel" class="queue-panel">
+                <div class="queue-header">
+                    <h3>File d'attente</h3>
+                    <button class="close-eq" onclick="toggleQueue()" title="Fermer"><i class="fas fa-times"></i></button>
+                </div>
+                <div id="queueList" class="queue-list"></div>
+            </div>
+        </aside>
+
+        <div class="eq-overlay" id="eqView" role="dialog" aria-label="Audio FX">
+            <div class="eq-header">
+                <h3><i class="fas fa-sliders-h"></i> Audio FX</h3>
+                <button class="close-eq" onclick="toggleEQ()" title="Fermer"><i class="fas fa-times"></i></button>
+            </div>
+            <p class="eq-note" id="eqDirectNote"><i class="fab fa-bluetooth-b"></i> Le mode audio direct est actif : la lecture passe sans traitement pour éviter les coupures, donc l'égaliseur et les effets sont désactivés.</p>
+            <div class="xfade-section">
+                <div class="xfade-head"><span>FONDU ENCHAÎNÉ</span><span id="xfadeVal">0s</span></div>
+                <input type="range" class="xfade-range" min="0" max="12" step="1" value="0" oninput="updateCrossfade(this.value)">
+            </div>
+            <div class="eq-sliders">
+                <div class="eq-band"><input type="range" class="eq-range" min="-12" max="12" value="0" data-freq="60" oninput="updateEQ(0, this.value)"><span>60Hz</span></div>
+                <div class="eq-band"><input type="range" class="eq-range" min="-12" max="12" value="0" data-freq="230" oninput="updateEQ(1, this.value)"><span>230Hz</span></div>
+                <div class="eq-band"><input type="range" class="eq-range" min="-12" max="12" value="0" data-freq="910" oninput="updateEQ(2, this.value)"><span>910Hz</span></div>
+                <div class="eq-band"><input type="range" class="eq-range" min="-12" max="12" value="0" data-freq="4000" oninput="updateEQ(3, this.value)"><span>4kHz</span></div>
+                <div class="eq-band"><input type="range" class="eq-range" min="-12" max="12" value="0" data-freq="14000" oninput="updateEQ(4, this.value)"><span>14kHz</span></div>
+            </div>
+            <div class="fx-btn-row">
+                <button class="limiter-btn" id="limiterBtn" onclick="toggleLimiter()"><i class="fas fa-compress-arrows-alt"></i> Normaliser</button>
+                <button class="orbit-btn" id="orbitBtn" onclick="toggleOrbit()"><i class="fas fa-earth-europe"></i> 8D Orbit</button>
+            </div>
+            <button class="eq-reset-btn" onclick="resetEQ()">Réinitialiser l'égaliseur</button>
+        </div>
+
+        <div class="player-capsule">
+            <div class="radio-badge" id="radioBadge">RADIO AUTO</div>
+            <div class="cap-info">
+                <img src="https://placehold.co/60x60/17171d/3a3a46?text=Z" id="capArt" class="cap-img smooth-fade" alt="">
+                <div class="cap-text">
+                    <div id="capTitle" class="cap-title smooth-fade">Aucun titre</div>
+                    <div id="capArtist" class="cap-artist smooth-fade"
+                        onclick="if(tracks[currentIndex]) openArtistProfile(tracks[currentIndex].performer.name, tracks[currentIndex].artist_id, tracks[currentIndex].source)">
+                        Lancez une musique</div>
+                </div>
+                <div class="cap-actions">
+                    <button id="btnLike" class="action-btn-mini" onclick="toggleLike()" title="Ajouter aux favoris"><i class="far fa-heart"></i></button>
+                    <button class="action-btn-mini" onclick="openAddToPlaylistModal()" title="Ajouter à une playlist"><i class="fas fa-plus"></i></button>
+                    <button class="share-btn-mini" onclick="copyLink()" title="Copier le lien"><i class="fas fa-link"></i></button>
+                    <button class="action-btn-mini" onclick="openMemoryModal()" title="Épingler un souvenir" id="btnPinMemory"><i class="fas fa-thumbtack"></i></button>
+                </div>
+            </div>
+            <div class="cap-center">
+                <div class="controls">
+                    <button class="ctrl-btn" id="btnShuffle" title="Aléatoire"><i class="fas fa-shuffle"></i></button>
+                    <button class="ctrl-btn" id="btnPrev" title="Précédent"><i class="fas fa-backward-step"></i></button>
+                    <button class="play-btn" id="btnPlay" title="Lecture / pause"><i class="fas fa-play" id="playIcon"></i></button>
+                    <button class="ctrl-btn" id="btnNext" title="Suivant"><i class="fas fa-forward-step"></i></button>
+                    <button class="ctrl-btn lyrics-btn" onclick="toggleLyrics()" title="Paroles (V)"><i class="fas fa-microphone-alt"></i></button>
+                </div>
+                <div class="timeline-box">
+                    <span id="currTime">0:00</span>
+                    <div class="progress-bg" id="progressBar">
+                        <div class="progress-fill" id="progressFill"></div>
+                        <div class="seek-hitbox"></div>
+                    </div>
+                    <span id="totTime">0:00</span>
+                </div>
+            </div>
+            <div class="cap-right">
+                <button class="ctrl-btn" onclick="toggleQueue()" title="File d'attente"><i class="fas fa-list-ol"></i></button>
+                <button class="ctrl-btn" onclick="toggleEQ()" title="Audio FX"><i class="fas fa-sliders-h"></i></button>
+                <div class="vol-wrap">
+                    <i class="fas fa-volume-high"></i>
+                    <input type="range" class="vol-slider" min="0" max="1" step="0.01" value="1" aria-label="Volume">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Navigation mobile -->
+    <nav class="mobile-tabbar" aria-label="Navigation mobile">
+        <button class="tab-item active" data-tab="home" onclick="goHome()"><i class="fas fa-house"></i><span>Accueil</span></button>
+        <button class="tab-item" data-tab="search" onclick="focusSearch()"><i class="fas fa-search"></i><span>Rechercher</span></button>
+        <button class="tab-item" data-tab="favorites" onclick="showFavorites()"><i class="fas fa-heart"></i><span>Favoris</span></button>
+        <button class="tab-item" data-tab="playlists" onclick="showPlaylists()"><i class="fas fa-layer-group"></i><span>Playlists</span></button>
+        <button class="tab-item" data-tab="more" onclick="toggleMoreSheet()"><i class="fas fa-ellipsis"></i><span>Plus</span></button>
+    </nav>
+    <div class="sheet-backdrop" id="sheetBackdrop" onclick="closeMoreSheet()"></div>
+
+    <!-- MEMORIES REEL OVERLAY -->
+    <div id="memoriesReelOverlay" style="display:none; position:fixed; inset:0; z-index:5000; overflow:hidden; background:#000;">
+        <!-- Layers -->
+        <div id="reelBg" class="reel-bg"></div>
+        <div class="reel-tint"></div>
+        <div class="reel-grain"></div>
+        <div class="reel-scanlines"></div>
+        <div class="reel-super8-frame"></div>
+
+        <!-- Letterbox bars (cinema) -->
+        <div class="reel-lbox-t"></div>
+        <div class="reel-lbox-b"></div>
+
+        <!-- VHS overlays -->
+        <div class="reel-rec-badge"><span class="reel-rec-dot"></span> REC</div>
+        <div class="reel-vhs-ts" id="reelVhsTs"></div>
+
+        <!-- Progress + close -->
+        <div id="reelProgress" class="reel-progress-track"></div>
+        <button onclick="closeMemoriesReel()" class="reel-close-btn"><i class="fas fa-times"></i></button>
+
+        <!-- Top info (stories + polaroid + vhs) -->
+        <div class="reel-top-bar">
+            <div class="reel-year-badge">IL Y A 1 AN</div>
+            <div id="reelDate" class="reel-date-text"></div>
+        </div>
+
+        <!-- Tap zones -->
+        <div class="reel-tap-left" onclick="prevReelSlide()"></div>
+        <div class="reel-tap-right" onclick="nextReelSlide()"></div>
+
+        <!-- Main slide -->
+        <div class="reel-slide" id="reelContent">
+            <div class="reel-visual-wrap">
+                <img id="reelMainImg" class="reel-main-img" src="" alt="">
+                <div id="reelNoteOverlay" class="reel-note-overlay" style="display:none;"></div>
+            </div>
+            <!-- Polaroid caption (below frame) -->
+            <div class="reel-polaroid-caption" id="reelPolaroidCaption"></div>
+            <!-- Cinema credits -->
+            <div class="reel-cinema-credits">
+                <div id="reelCinemaTitle" class="reel-cinema-title"></div>
+                <div id="reelCinemaArtist" class="reel-cinema-artist"></div>
+            </div>
+        </div>
+
+        <!-- Bottom bar (stories + polaroid + vhs) -->
+        <div class="reel-bottom-bar">
+            <div id="reelLocation" class="reel-location" style="display:none;"></div>
+            <div class="reel-music-pill">
+                <div class="reel-vinyl"><img id="reelArt" src="" alt=""></div>
+                <div class="reel-music-meta">
+                    <div id="reelTitle" class="reel-title"></div>
+                    <div id="reelArtist" class="reel-artist"></div>
+                </div>
+                <div class="reel-music-wave"><span></span><span></span><span></span><span></span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARTE DES SOUVENIRS -->
+    <div id="memoriesMapOverlay" class="mem-map-overlay" style="display:none;">
+        <div class="mem-map-topbar">
+            <div class="mem-map-title"><i class="fas fa-map-marked-alt"></i> Carte des souvenirs</div>
+            <div id="memMapStatus" class="mem-map-status"></div>
+            <button class="mem-map-close" onclick="closeMemoriesMap()" title="Fermer"><i class="fas fa-times"></i></button>
+        </div>
+        <div id="memMapCanvas" class="mem-map-canvas"></div>
+        <div id="memMapEmpty" class="mem-map-empty" style="display:none;">
+            <i class="fas fa-map-marker-alt"></i>
+            <p>Aucun souvenir géolocalisé pour l'instant.</p>
+            <span>Épingle un souvenir en autorisant la localisation pour le voir ici.</span>
+        </div>
+    </div>
+
+    <script src="auth.js"></script>
+    <script src="profile.js"></script>
+    <script src="playlists.js"></script>
+    <script src="magic.js"></script>
+    <script src="blindtest.js"></script>
+    <script src="party.js"></script>
+    <script src="tv.js"></script>
+    <script src="bluetooth.js"></script>
+    <script src="dashboard.js"></script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW Error:', err));
+            });
+        }
+    </script>
+
+    <script>
+        const API_BASE = '';
+        const IMGBB_KEY = '7b5e1e0a40ec117ac071bc12842cc932'; // https://api.imgbb.com/ → Settings → API
+
+        let tracks = [];
+        let currentIndex = 0;
+        let currentGridItems = [];
+        let lastSearchResults = []; // NEW: Pour stocker les résultats et les trier
+
+        // LECTEURS AUDIO HTML5 (Source)
+        const playerA = new Audio(); playerA.id = "playerA"; playerA.preload = "auto"; playerA.crossOrigin = "anonymous"; playerA.volume = 1;
+        const playerB = new Audio(); playerB.id = "playerB"; playerB.preload = "auto"; playerB.crossOrigin = "anonymous"; playerB.volume = 1;
+        document.body.appendChild(playerA);
+        document.body.appendChild(playerB);
+
+        // SHAKA PLAYER INSTANCES (Une par lecteur pour le crossfade)
+        let shakaPlayerA = null;
+        let shakaPlayerB = null;
+
+        let activeAudio = playerA;
+        let crossfadeDuration = 0; let globalVolume = 1;
+        let isFading = false; let nextTrackTriggered = false;
+        let isPlaying = false; let isRadioActive = false; let isLyricsMode = false;
+        let isShuffle = false; // Ajout état shuffle
+        let lyricsData = []; let firstLineTime = null; let currentTrackId = null;
+        let fadeInterval = null;
+
+        // GESTION RADIO & FETCHING
+        let isFetchingRadio = false;
+        let radioTimeout = null;
+
+        let crossfadeTimeout = null;
+        // Optimization: Cache lyrics elements
+        let lyricsElements = [];
+        let lastLyricsUpdate = 0;
+        let lastUiUpdate = 0;
+
+        // Translation State
+        let originalLyricsData = [];
+        let translatedLyricsData = [];
+        let isTranslated = false;
+
+        // --- VARIABLES AUDIO WORKLET ---
+        let audioCtx, zenithNode, sourceA, sourceB;
+        let masterGain;
+        let isOrbitOn = false, isLimiterOn = false;
+        let eqFilters = []; const eqFrequencies = [60, 230, 910, 4000, 14000];
+        let compressor;
+
+        // --- NEW: DIRECT AUDIO SETTING ---
+        let userSettings = { limiter: false, crossfade: 0, magic: true, eco: false, directAudio: true };
+        let magicEnabled = true;
+
+        let favorites = [];
+        // Correction de la variable history qui était locale
+        window.userHistory = [];
+
+        let navStack = [];
+
+        function resetNavStack() { navStack = []; }
+
+        // --- UI : états, navigation, mobile ---
+        // Bloc d'état réutilisable (chargement / vide / erreur) pour les grilles et listes
+        function uiState(kind, msg, icon) {
+            const icons = { loading: 'fa-circle-notch fa-spin', empty: 'fa-folder-open', error: 'fa-triangle-exclamation' };
+            return `<div class="ui-state ${kind}"><i class="fas ${icon || icons[kind] || icons.empty}"></i><p>${msg}</p></div>`;
+        }
+
+        const MAIN_VIEWS = ['trackView', 'artistView', 'lyricsView', 'blindTestView', 'profileView', 'playlistView', 'allPlaylistsView', 'memoriesView'];
+        function hideAllViews() {
+            MAIN_VIEWS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+            document.getElementById('searchBarContainer').style.display = 'none';
+            closeMoreSheet();
+        }
+
+        // Onglet actif : barre latérale (navKey) + barre d'onglets mobile (tabKey)
+        function setActiveNav(navKey, tabKey) {
+            document.querySelectorAll('.nav-item[data-nav]').forEach(n => n.classList.toggle('active', n.dataset.nav === navKey));
+            const tab = tabKey || (['home', 'favorites', 'playlists'].includes(navKey) ? navKey : 'more');
+            document.querySelectorAll('.tab-item[data-tab]').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+        }
+
+        // Filtres de recherche (puces) : pilotent le <select id="searchType"> lu par performSearch
+        function syncSearchChips() {
+            const v = document.getElementById('searchType').value;
+            document.querySelectorAll('.search-filters .chip').forEach(c => c.classList.toggle('active', c.dataset.type === v));
+        }
+        function setSearchType(type) {
+            document.getElementById('searchType').value = type;
+            syncSearchChips();
+            if (document.getElementById('searchInput').value.trim()) performSearch();
+        }
+        function focusSearch() {
+            goHome();
+            setActiveNav('home', 'search');
+            setTimeout(() => document.getElementById('searchInput').focus(), 50);
+        }
+
+        // Feuille « Plus » (mobile) = la barre latérale qui remonte
+        function toggleMoreSheet() {
+            const open = !document.getElementById('sidebar').classList.contains('sheet-open');
+            document.getElementById('sidebar').classList.toggle('sheet-open', open);
+            document.getElementById('sheetBackdrop').classList.toggle('show', open);
+        }
+        function closeMoreSheet() {
+            const sb = document.getElementById('sidebar');
+            if (sb) sb.classList.remove('sheet-open');
+            const bd = document.getElementById('sheetBackdrop');
+            if (bd) bd.classList.remove('show');
+        }
+
+        // « Lecture en cours » plein écran (tablette / mobile)
+        function isCompactLayout() { return window.matchMedia('(max-width: 1024px)').matches; }
+        function openNowPlaying() {
+            if (!isCompactLayout()) return;
+            closeMoreSheet();
+            document.body.classList.add('np-open');
+        }
+        function closeNowPlaying() {
+            document.body.classList.remove('np-open');
+            const rp = document.getElementById('rightPanel');
+            if (rp && rp.classList.contains('mobile-active')) toggleQueue();
+        }
+
+        // Couleur d'accent (stockée sur l'appareil)
+        const ACCENTS = [
+            { name: 'Menthe', hex: '#5eead4', rgb: '94, 234, 212', ink: '#03201b' },
+            { name: 'Cyan', hex: '#38d4ff', rgb: '56, 212, 255', ink: '#021822' },
+            { name: 'Lilas', hex: '#b9a5ff', rgb: '185, 165, 255', ink: '#160b33' },
+            { name: 'Rose', hex: '#ff8fb1', rgb: '255, 143, 177', ink: '#2d0613' },
+            { name: 'Ambre', hex: '#fbbf5a', rgb: '251, 191, 90', ink: '#2a1700' },
+            { name: 'Citron', hex: '#c4f25c', rgb: '196, 242, 92', ink: '#172300' },
+        ];
+        function applyAccent(a) {
+            const root = document.documentElement.style;
+            root.setProperty('--primary', a.hex); root.setProperty('--primary-rgb', a.rgb); root.setProperty('--primary-ink', a.ink);
+            try { localStorage.setItem('zenith_accent', JSON.stringify(a)); } catch (e) { }
+            renderAccentSwatches();
+        }
+        function renderAccentSwatches() {
+            const box = document.getElementById('accentSwatches');
+            if (!box) return;
+            const current = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim().toLowerCase();
+            box.innerHTML = ACCENTS.map((a, i) => `<button class="accent-swatch${a.hex === current ? ' active' : ''}" style="--swatch:${a.hex}" title="${a.name}" onclick="applyAccent(ACCENTS[${i}])"></button>`).join('');
+        }
+        function pushNavState() {
+            navStack.push({
+                gridItems: [...currentGridItems],
+                title: document.getElementById('viewTitle').innerText,
+                scroll: window.scrollY
+            });
+        }
+
+        function goBack() {
+            const artistV = document.getElementById('artistView');
+            if (artistV.style.display === 'block') { artistV.style.display = 'none'; showTracks(); return; }
+            const playlistV = document.getElementById('playlistView');
+            if (playlistV.style.display === 'block') { playlistV.style.display = 'none'; if (document.getElementById('allPlaylistsView').style.display === 'none') { showTracks(); } else { document.getElementById('allPlaylistsView').style.display = 'block'; } return; }
+            const allPlView = document.getElementById('allPlaylistsView');
+            if (allPlView.style.display === 'block') { allPlView.style.display = 'none'; goHome(); return; }
+            if (document.getElementById('trackView').style.display === 'block' && navStack.length === 0) { const searchVal = document.getElementById('searchInput').value; const isResultTitle = document.getElementById('viewTitle').innerText === "Résultats"; if (searchVal || isResultTitle) { document.getElementById('searchInput').value = ""; goHome(); return; } }
+            if (navStack.length > 0) { const state = navStack.pop(); showTracks(); renderGrid(state.gridItems, false); document.getElementById('viewTitle').innerText = state.title; setTimeout(() => window.scrollTo(0, state.scroll), 0); safePushState({}, "", window.location.pathname); return; }
+            if (window.history.length > 1) { window.history.back(); } else { goHome(); }
+        }
+
+        function applySettings(settings) {
+            // DIRECT AUDIO LOGIC — FORCÉ pour tout le monde (lecture sans coupure), sans exception
+            const isDirect = true;
+            userSettings.directAudio = isDirect;
+            document.getElementById('settingDirectAudio').checked = isDirect;
+
+            // Si Direct Audio est activé, on désactive les effets visuellement
+            if (isDirect) {
+                disableAudioFXButtons();
+                document.getElementById('settingCrossfade').disabled = true;
+                document.getElementById('settingLimiter').disabled = true;
+                showToast("Mode Direct Audio Activé (Pas d'EQ/FX)");
+            } else {
+                if (audioCtx) enableAudioFXButtons();
+                document.getElementById('settingCrossfade').disabled = false;
+                document.getElementById('settingLimiter').disabled = false;
+            }
+
+            isLimiterOn = (settings.limiter === true || settings.limiter === 'true');
+            document.getElementById('settingLimiter').checked = isLimiterOn;
+
+            // Only update compressor if audioCtx exists AND we are not in Direct Mode (handled by initAudioContext)
+            if (compressor && audioCtx && !isDirect) {
+                compressor.threshold.setTargetAtTime(isLimiterOn ? -10 : 0, audioCtx.currentTime, 0.05);
+            }
+            document.getElementById('limiterBtn').classList.toggle('active', isLimiterOn);
+
+            const xfade = parseInt(settings.crossfade || 0);
+            document.getElementById('settingCrossfade').value = xfade;
+            document.getElementById('settingCrossfadeVal').innerText = xfade + "s";
+            document.querySelector('.xfade-range').value = xfade;
+
+            const fxLabel = document.getElementById('xfadeVal');
+            if (fxLabel) fxLabel.innerText = xfade + "s";
+
+            // Mode ECO
+            const isEco = (settings.eco === true || settings.eco === 'true');
+            userSettings.eco = isEco;
+            document.getElementById('settingEcoMode').checked = isEco;
+            if (isEco) {
+                document.body.classList.add('eco-mode');
+                settings.magic = false;
+                document.getElementById('settingMagic').checked = false;
+            } else {
+                document.body.classList.remove('eco-mode');
+            }
+
+            const isMagic = (settings.magic === true || settings.magic === 'true') && !isEco;
+            magicEnabled = isMagic;
+            document.getElementById('settingMagic').checked = isMagic;
+
+            if (!magicEnabled) {
+                document.body.classList.remove('fire-mode', 'rain-mode', 'ocean-mode', 'starwars-mode', 'matrix-mode', 'disco-mode');
+                document.getElementById('wandContainer').classList.remove('active');
+                if (typeof stopEffects === 'function') stopEffects();
+            }
+        }
+
+        async function changeSetting(key, value) {
+            userSettings[key] = value;
+
+            if (key === 'directAudio') {
+                // Changing audio routing requires reload to be clean
+                localStorage.setItem('zenith_pref_' + key, value);
+                if (confirm("Le changement de mode audio nécessite un rechargement. Recharger maintenant ?")) {
+                    window.location.reload();
+                }
+                return;
+            }
+
+            applySettings(userSettings);
+            localStorage.setItem('zenith_pref_' + key, value);
+
+            if (!supabaseClient) return;
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (user) {
+                try { await supabaseClient.from('profiles').update({ settings: userSettings }).eq('id', user.id); }
+                catch (e) { console.error("Sync settings error", e); }
+            }
+        }
+
+        function loadLocalSettings() {
+            const sLimiter = localStorage.getItem('zenith_pref_limiter');
+            if (sLimiter !== null) userSettings.limiter = (sLimiter === 'true');
+            else userSettings.limiter = false;
+
+            const sXfade = localStorage.getItem('zenith_pref_crossfade'); if (sXfade !== null) userSettings.crossfade = parseInt(sXfade);
+            const sMagic = localStorage.getItem('zenith_pref_magic'); if (sMagic !== null) userSettings.magic = (sMagic === 'true');
+            const sEco = localStorage.getItem('zenith_pref_eco'); if (sEco !== null) userSettings.eco = (sEco === 'true');
+            userSettings.directAudio = true;  // Direct Audio forcé pour tout le monde (lecture fluide)
+
+            applySettings(userSettings);
+        }
+
+        const originalLoadProfile = window.loadProfile; window.loadProfile = async function () { if (originalLoadProfile) await originalLoadProfile(); const { data: { user } } = await supabaseClient.auth.getUser(); if (!user) return; if (window.loadUserPlaylists) window.loadUserPlaylists(); if (window.loadUserHistory) await window.loadUserHistory(); const { data, error } = await supabaseClient.from('profiles').select('settings').eq('id', user.id).single(); if (data && data.settings) { userSettings = { ...userSettings, ...data.settings }; applySettings(userSettings); localStorage.setItem('zenith_pref_limiter', userSettings.limiter); localStorage.setItem('zenith_pref_crossfade', userSettings.crossfade); localStorage.setItem('zenith_pref_magic', userSettings.magic); localStorage.setItem('zenith_pref_eco', userSettings.eco); localStorage.setItem('zenith_pref_directAudio', userSettings.directAudio); } };
+        function showProfileSettings() { isLyricsMode = false; hideAllViews(); setActiveNav('profile'); document.getElementById('profileView').style.display = 'block'; renderAccentSwatches(); window.loadProfile(); }
+        window.loadUserFavorites = async function () {
+            if (!supabaseClient) return;
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (!user) return;
+            const { data, error } = await supabaseClient.from('favorites').select('*');
+            if (data) {
+                favorites = data.map(f => ({ ...f.track_data, db_row_id: f.id, fromSearch: false }));
+                updateLikeButtonState();
+            }
+            window.loadProfile();
+        };
+        function safePushState(data, title, url) { try { if (window.history && window.history.pushState) { window.history.pushState(data, title, url); } } catch (e) { console.warn("History pushState blocked", e); } }
+
+        // --- SHAKA PLAYER INIT ---
+        async function initShaka() {
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                shakaPlayerA = new shaka.Player(playerA);
+                shakaPlayerB = new shaka.Player(playerB);
+
+                // Gestion d'erreurs avec fallback automatique
+                const onShakaError = (e) => {
+                    console.error('Shaka Error', e);
+                    // On ne déclenche le fallback que si c'est le lecteur actif
+                    const errorAudio = (shakaPlayerA === e.target) ? playerA : playerB;
+                    if (errorAudio === activeAudio) {
+                        handlePlaybackError(currentIndex);
+                    }
+                };
+                shakaPlayerA.addEventListener('error', onShakaError);
+                shakaPlayerB.addEventListener('error', onShakaError);
+
+                // Les segments Tidal (CDN sans CORS) sont réécrits vers notre proxy même-origine
+                const tidalProxyFilter = (type, request) => {
+                    request.uris = request.uris.map(u =>
+                        u.includes('audio.tidal.com')
+                            ? `${API_BASE}/tidal_proxy?url=${encodeURIComponent(u)}`
+                            : u
+                    );
+                };
+                shakaPlayerA.getNetworkingEngine().registerRequestFilter(tidalProxyFilter);
+                shakaPlayerB.getNetworkingEngine().registerRequestFilter(tidalProxyFilter);
+                console.log("✅ Shaka Player Ready");
+            } else {
+                console.error('Browser not supported for Shaka Player');
+            }
+        }
+
+        async function initAudioContext() {
+            // IF DIRECT AUDIO MODE IS ON, WE DO NOT CREATE AUDIO CONTEXT NODES
+            // THIS CONNECTS AUDIO ELEMENTS DIRECTLY TO SYSTEM OUTPUT
+            if (userSettings.directAudio) {
+                console.log("🔊 MODE DIRECT AUDIO ACTIVÉ: Web Audio API Bypassé pour performance Bluetooth.");
+                disableAudioFXButtons();
+                // Assure que les lecteurs sont "libres"
+                try {
+                    if (audioCtx) await audioCtx.close();
+                    audioCtx = null;
+                } catch (e) { }
+                return;
+            }
+
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!audioCtx) {
+                audioCtx = new AudioContext({ latencyHint: 'playback' });
+            }
+
+            try {
+                await audioCtx.audioWorklet.addModule('zenith-processor.js');
+                console.log("✅ AudioWorklet 'zenith-processor' chargé.");
+            } catch (e) {
+                console.error("❌ Erreur de chargement de l'AudioWorklet:", e);
+                showToast("Erreur AudioFX (Worklet non chargé).");
+                sourceA = audioCtx.createMediaElementSource(playerA);
+                sourceB = audioCtx.createMediaElementSource(playerB);
+                masterGain = audioCtx.createGain();
+                masterGain.gain.value = globalVolume;
+                sourceA.connect(masterGain);
+                sourceB.connect(masterGain);
+                masterGain.connect(audioCtx.destination);
+                disableAudioFXButtons();
+                return;
+            }
+
+            sourceA = audioCtx.createMediaElementSource(playerA);
+            sourceB = audioCtx.createMediaElementSource(playerB);
+
+            zenithNode = new AudioWorkletNode(audioCtx, 'zenith-processor', {
+                numberOfInputs: 2,
+                numberOfOutputs: 1,
+                outputChannelCount: [2],
+                parameterData: {
+                    volume: globalVolume,
+                    crossfade: userSettings.crossfade,
+                    orbitEnabled: isOrbitOn ? 1 : 0
+                }
+            });
+
+            eqFilters = [];
+            let lastNode = zenithNode;
+            eqFrequencies.forEach((freq, i) => {
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'peaking';
+                filter.frequency.value = freq;
+                filter.Q.value = 1;
+                filter.gain.value = 0;
+                eqFilters.push(filter);
+                lastNode.connect(filter);
+                lastNode = filter;
+            });
+
+            compressor = audioCtx.createDynamicsCompressor();
+            compressor.threshold.value = isLimiterOn ? -10 : 0;
+            compressor.knee.value = 30;
+            compressor.ratio.value = 12;
+            compressor.attack.value = 0.005;
+            compressor.release.value = 0.050;
+
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 1;
+
+            lastNode.connect(compressor);
+            compressor.connect(masterGain);
+            masterGain.connect(audioCtx.destination);
+
+            sourceA.connect(zenithNode, 0, 0);
+            sourceB.connect(zenithNode, 0, 1);
+
+            enableAudioFXButtons();
+            applySettings(userSettings);
+        }
+
+        function disableAudioFXButtons() {
+            document.getElementById('limiterBtn').disabled = true;
+            document.getElementById('orbitBtn').disabled = true;
+            document.querySelectorAll('.eq-range').forEach(s => s.disabled = true);
+            document.querySelector('.xfade-range').disabled = true;
+            document.getElementById('eqView').querySelector('.eq-reset-btn').disabled = true;
+            document.getElementById('limiterBtn').style.opacity = "0.5";
+            document.getElementById('orbitBtn').style.opacity = "0.5";
+            document.getElementById('eqDirectNote').style.display = '';
+        }
+
+        function enableAudioFXButtons() {
+            document.getElementById('limiterBtn').disabled = false;
+            document.getElementById('orbitBtn').disabled = false;
+            document.querySelectorAll('.eq-range').forEach(s => s.disabled = false);
+            document.querySelector('.xfade-range').disabled = false;
+            document.getElementById('eqView').querySelector('.eq-reset-btn').disabled = false;
+            document.getElementById('limiterBtn').style.opacity = "1";
+            document.getElementById('orbitBtn').style.opacity = "1";
+            document.getElementById('eqDirectNote').style.display = 'none';
+        }
+
+        // --- Panneau « Lecture en cours » : aperçu des prochains titres + qualité ---
+        function renderUpNext() {
+            const box = document.getElementById('upNextList');
+            if (!box) return;
+            const next = (tracks || []).slice(currentIndex + 1, currentIndex + 6);
+            if (!next.length) {
+                box.innerHTML = tracks && tracks.length
+                    ? '<div class="up-next-empty"><i class="fas fa-tower-broadcast"></i> La radio prendra le relais à la fin du titre.</div>'
+                    : '';
+                return;
+            }
+            box.innerHTML = next.map((t, k) => {
+                let img = t.img || (t.album && t.album.image ? t.album.image.large : null) || 'https://placehold.co/80x80/17171d/3a3a46?text=%E2%99%AA';
+                if (img.includes('_300')) img = img.replace('_300', '_600');
+                const artist = t.performer ? t.performer.name : (t.artist ? t.artist.name : '');
+                return `<div class="queue-item" onclick="loadTrack(${currentIndex + 1 + k})">
+                    <img src="${img}" loading="lazy" alt="">
+                    <div class="queue-info"><div class="queue-title">${escapeHtml(t.title)}</div><div class="queue-artist">${escapeHtml(artist)}</div></div>
+                </div>`;
+            }).join('');
+        }
+
+        function updateQualityInfo(t) {
+            const el = document.getElementById('xlQuality');
+            if (!el || !t) return;
+            const hires = t.maximum_bit_depth > 16;
+            let label = '';
+            if (t.source === 'tidal_hund') label = hires ? 'Hi-Res Lossless · FLAC 24 bits' : 'Lossless · FLAC 16 bits';
+            else if (t.source === 'qobuz') label = hires ? 'Hi-Res · FLAC 24 bits' : 'Lossless · FLAC';
+            else if (t.source === 'deezer_flac') label = 'Lossless · FLAC';
+            else if (t.source === 'amazon_music') label = 'Amazon Music · FLAC';
+            el.innerHTML = label ? `<i class="fas fa-wave-square"></i> ${label}` : '';
+            el.classList.toggle('hires', hires && !!label);
+            document.getElementById('xlBadge').style.display = (t.source !== 'subsonic' && hires) ? 'block' : 'none';
+        }
+
+        function setGlobalVolume(val) {
+            globalVolume = parseFloat(val);
+            if (zenithNode && audioCtx && !userSettings.directAudio) {
+                zenithNode.parameters.get('volume').setTargetAtTime(globalVolume, audioCtx.currentTime, 0.05);
+            } else {
+                playerA.volume = globalVolume;
+                playerB.volume = globalVolume;
+            }
+            const vs = document.querySelector('.vol-slider');
+            if (vs) vs.style.setProperty('--fill', (globalVolume * 100) + '%');
+        }
+
+        function toggleLimiter() {
+            if (userSettings.directAudio) { showToast("Indisponible en mode Direct Audio"); return; }
+            if (!audioCtx || !compressor) return;
+            isLimiterOn = !isLimiterOn;
+            document.getElementById('limiterBtn').classList.toggle('active', isLimiterOn);
+            if (isLimiterOn) {
+                compressor.threshold.setTargetAtTime(-10, audioCtx.currentTime, 0.05);
+                showToast("Normalisateur activé 🎚️");
+            } else {
+                compressor.threshold.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+                showToast("Normalisateur désactivé");
+            }
+            changeSetting('limiter', isLimiterOn);
+        }
+
+        function toggleOrbit() {
+            if (userSettings.directAudio) { showToast("Indisponible en mode Direct Audio"); return; }
+            if (!audioCtx || !zenithNode) return;
+            isOrbitOn = !isOrbitOn;
+            document.getElementById('orbitBtn').classList.toggle('active', isOrbitOn);
+            zenithNode.parameters.get('orbitEnabled').setTargetAtTime(isOrbitOn ? 1 : 0, audioCtx.currentTime, 0.05);
+            const orb = document.getElementById('orbitVisual');
+            if (isOrbitOn) {
+                orb.classList.add('orbiting');
+                orb.classList.remove('center-stage');
+                showToast("8D Orbit activé 🌐");
+            } else {
+                orb.classList.remove('orbiting');
+                orb.classList.add('center-stage');
+                showToast("8D Orbit désactivé");
+            }
+        }
+
+        function updateCrossfade(val) {
+            if (userSettings.directAudio) return;
+            const duration = parseFloat(val);
+            document.getElementById('xfadeVal').innerText = duration + "s";
+            changeSetting('crossfade', duration);
+        }
+
+        function updateEQ(index, value) {
+            if (userSettings.directAudio) return;
+            if (!audioCtx || !eqFilters[index]) return;
+            eqFilters[index].gain.setTargetAtTime(parseFloat(value), audioCtx.currentTime, 0.05);
+        }
+
+        function resetEQ() {
+            if (userSettings.directAudio) return;
+            if (!audioCtx || !eqFilters.length) return;
+            eqFilters.forEach((filter, i) => {
+                filter.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+                document.querySelectorAll('.eq-range')[i].value = 0;
+            });
+            showToast("Égaliseur réinitialisé");
+        }
+
+        function toggleEQ() {
+            const v = document.getElementById('eqView');
+            if (v.style.display === 'flex') {
+                v.classList.remove('active');
+                setTimeout(() => v.style.display = 'none', 300);
+            } else {
+                v.style.display = 'flex';
+                setTimeout(() => v.classList.add('active'), 10);
+            }
+        }
+
+        function renderQueueList() {
+            const list = document.getElementById('queueList');
+            list.innerHTML = '';
+            if (!tracks || tracks.length === 0) {
+                list.innerHTML = '<div class="queue-empty">La file d\'attente est vide.</div>';
+                return;
+            }
+
+            tracks.forEach((t, i) => {
+                const el = document.createElement('div');
+                let itemClass = 'queue-item';
+                if (i === currentIndex) itemClass += ' current';
+                else if (i < currentIndex) itemClass += ' played';
+
+                el.className = itemClass;
+
+                let img = t.img || (t.album ? t.album.image.large : null) || 'https://placehold.co/400x400/222/666?text=M';
+                if (img && img.includes('_300')) {
+                    img = img.replace('_300', '_600');
+                }
+
+                const artist = t.performer ? t.performer.name : (t.artist ? t.artist.name : 'Inconnu');
+
+                el.innerHTML = `
+                    <img src="${img}" loading="lazy" decoding="async">
+                    <div class="queue-info">
+                        <div class="queue-title">${t.title}</div>
+                        <div class="queue-artist">${artist}</div>
+                    </div>
+                    ${i === currentIndex ? '<i class="fas fa-volume-up playing-icon-small"></i>' : ''}
+                `;
+                el.onclick = () => {
+                    loadTrack(i);
+                    renderQueueList();
+                };
+                list.appendChild(el);
+            });
+
+            setTimeout(() => {
+                const currentEl = list.querySelector('.current');
+                if (currentEl) {
+                    // Le titre en cours en haut de la liste : on voit ce qui suit
+                    list.scrollTo({ top: Math.max(0, currentEl.offsetTop - 4), behavior: 'smooth' });
+                }
+            }, 100);
+        }
+
+        function resetLyricsState() {
+            lyricsData = [];
+            originalLyricsData = [];
+            translatedLyricsData = [];
+            isTranslated = false;
+            firstLineTime = null;
+
+            document.getElementById('btnTranslate').classList.remove('active');
+            const view = document.getElementById('lyricsContent');
+            view.innerHTML = '<div class="lyrics-placeholder" style="animation: pulseText 1.5s infinite;">Recherche des paroles…</div>';
+            document.getElementById('introContainer').style.display = 'none';
+            lyricsElements = [];
+        }
+
+        // Variable globale pour gérer la concurrence des chargements
+        let currentLoadId = 0;
+        let currentHistorySaveState = { id: null, saved: false };
+
+        // Charge une piste Tidal (par ID Tidal) dans une instance Shaka (FLAC DASH, segments proxifiés).
+        async function loadTidalIntoShaka(shakaInstance, tidalId, signal) {
+            const mres = await fetch(`${API_BASE}/tidal_manifest/${tidalId}`, signal ? { signal } : undefined);
+            if (!mres.ok) throw new Error("tidal_manifest HTTP " + mres.status);
+            const md = await mres.json();
+            if (md.mimeType !== 'application/dash+xml') throw new Error("Tidal: pas de manifeste DASH");
+            // Pas de DRM ; Shaka patient (le proxy ajoute de la latence).
+            shakaInstance.configure({
+                drm: { clearKeys: {} },
+                // Bitrate adaptatif : démarre en 24-bit (estimation haute) et ne descend en 16-bit/AAC
+                // que si la connexion/CPU ne suit pas → qualité max SANS jamais couper.
+                abr: { enabled: true, defaultBandwidthEstimate: 5000000, restrictToElementSize: false },
+                streaming: {
+                    // Tampon calibré : 22 s d'avance suffisent largement à absorber les à-coups
+                    // (Spotify en utilise ~10-15 s). En 24 bits/96 kHz, passer de 40 s à 22 s
+                    // divise presque par deux les données transitant par le serveur.
+                    rebufferingGoal: 3, bufferingGoal: 22, bufferBehind: 15, stallEnabled: false,
+                    retryParameters: { maxAttempts: 4, baseDelay: 400, backoffFactor: 2, fuzzFactor: 0.5, timeout: 45000, stallTimeout: 0, connectionTimeout: 0 }
+                },
+                manifest: { retryParameters: { maxAttempts: 3, baseDelay: 400, backoffFactor: 2, timeout: 30000 } }
+            });
+            await shakaInstance.load('data:application/dash+xml;base64,' + md.manifest);
+        }
+
+        async function loadTrack(index, autoPlay = true, useCrossfade = true) {
+            if (index < 0 || index >= tracks.length) return;
+
+            // Increment ID to invalidate previous pending loads
+            const thisLoadId = ++currentLoadId;
+
+            // OPTIMISATION ZAPPING : on annule tout de suite les requêtes de la piste précédente
+            // (manifeste, paroles) ET on coupe le téléchargement des segments encore en cours.
+            // Sans ça, zapper 5 fois = 5 pistes qui continuent de charger 40 s de segments
+            // chacune via le proxy → serveur saturé et démarrage très lent.
+            try { if (window._loadAbort) window._loadAbort.abort(); } catch (e) {}
+            window._loadAbort = new AbortController();
+            const abortSignal = window._loadAbort.signal;
+            try {
+                const oldShaka = (activeAudio === playerA) ? shakaPlayerA : shakaPlayerB;
+                if (oldShaka && oldShaka.getLoadMode && oldShaka.getLoadMode() !== 0) oldShaka.unload();
+            } catch (e) {}
+
+            if (document.getElementById('queuePanel').classList.contains('active')) {
+                const oldIndex = currentIndex;
+            }
+
+            if (typeof ZenithCast !== 'undefined' && ZenithCast.isCasting) {
+                currentIndex = index; const t = tracks[index]; currentTrackId = t.id;
+                updateInterfaceInfo(t); updateActiveCard(); fetchLyrics(t, t.performer ? t.performer.name : 'Artiste');
+                ZenithCast.loadMedia(t); pause(); isPlaying = true; document.getElementById('playIcon').className = 'fas fa-pause';
+                updateLikeButtonState();
+                if (index === tracks.length - 1) triggerRadio(true);
+                if (document.getElementById('queuePanel').classList.contains('active')) renderQueueList();
+                return;
+            }
+
+            // ONLY init Web Audio if NOT in Direct Mode
+            if (!userSettings.directAudio) {
+                if (!audioCtx) await initAudioContext();
+                if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+            }
+
+            nextTrackTriggered = true;  // bloque l'avance auto pendant TOUT le chargement
+            let nextTrack = tracks[index]; // Use let to allow modification
+
+            // Reset history save state for the new track
+            currentHistorySaveState = { id: nextTrack.id, saved: false };
+
+            // In Direct Mode, we can reuse same player or switch, but crossfade is disabled anyway
+            const nextAudio = (activeAudio === playerA) ? playerB : playerA;
+            const prevAudio = activeAudio;
+
+            // Coupe IMMÉDIATEMENT la piste en cours (silence pendant que la nouvelle se charge),
+            // au lieu de la laisser jouer pendant la latence de résolution/chargement.
+            try { if (prevAudio && !prevAudio.paused) prevAudio.pause(); } catch (e) {}
+
+            // Determine Shaka Player instance
+            const nextShaka = (nextAudio === playerA) ? shakaPlayerA : shakaPlayerB;
+            const prevShaka = (prevAudio === playerA) ? shakaPlayerA : shakaPlayerB;
+
+            // MISE A JOUR UI IMMEDIATE
+            currentIndex = index; currentTrackId = nextTrack.id;
+            updateInterfaceInfo(nextTrack);
+            if (nextTrack.isRadio) {
+                document.getElementById('radioBadge').style.display = 'block'; isRadioActive = true;
+            } else {
+                document.getElementById('radioBadge').style.display = 'none'; isRadioActive = false;
+            }
+            if (typeof broadcastTrackChange === 'function') broadcastTrackChange(nextTrack);
+            resetLyricsState();
+            updateActiveCard();
+            updateLikeButtonState();
+
+            // --- NOUVELLE LOGIQUE DE RÉSOLUTION UNIFIÉE (Réparation Proactive) ---
+            // On capture l'ID original pour la correction Supabase éventuelle
+            const oldId = nextTrack.id;
+
+            // On résout ce qui est marqué comme "lazy" ou ce qui vient d'une source hors service :
+            // Qobuz étant en pause, un ancien titre Qobuz (favori, playlist) est re-résolu vers
+            // l'addon Tidal avant lecture. On n'exclut que les sources lisibles telles quelles.
+            if (nextTrack.source !== 'amazon_music' && nextTrack.source !== 'deezer_flac' && nextTrack.source !== 'tidal_hund') {
+                try {
+                    const artist = nextTrack.performer ? nextTrack.performer.name : (nextTrack.artist ? nextTrack.artist.name : 'Inconnu');
+                    const resolveParams = new URLSearchParams({ title: nextTrack.title || '', artist, ...(nextTrack.isrc && { isrc: nextTrack.isrc }) });
+                    const res = await fetch(`${API_BASE}/resolve_metadata?${resolveParams}`, { signal: abortSignal });
+
+                    if (thisLoadId !== currentLoadId) return;
+
+                    if (res.ok) {
+                        const newMeta = await res.json();
+                        console.log(`✅ Rémanence : Résolution réussie (${newMeta.source}) pour :`, nextTrack.title);
+
+                        // Mise à jour de l'objet local
+                        nextTrack.id = newMeta.id;
+                        nextTrack.source = newMeta.source;
+                        if (newMeta.duration && (!nextTrack.duration || nextTrack.duration === 0)) nextTrack.duration = newMeta.duration;
+                        if (newMeta.maximum_bit_depth) nextTrack.maximum_bit_depth = newMeta.maximum_bit_depth;
+                        updateQualityInfo(nextTrack);
+
+                        // CORRECTION SUPABASE : réparation en base avec db_row_id direct si disponible
+                        const directId = nextTrack.db_row_id || null;
+                        updateFavoriteIfNeeded(oldId, newMeta, directId);
+                    } else {
+                        console.warn("❌ Echec résolution métadonnées, tentative de lecture directe...");
+                    }
+                } catch (e) {
+                    if (e && e.name === 'AbortError') return;  // zapping : requête annulée, normal
+                    console.error("Resolve error", e);
+                }
+            }
+
+            // Gestion Source AMAZON MUSIC (FLAC chiffré CENC — Shaka déchiffre en ClearKey)
+            if (nextTrack.source === 'amazon_music') {
+                try {
+                    await nextShaka.unload();
+                    const res = await fetch(`${API_BASE}/amazon_manifest/${nextTrack.id}`);
+                    if (thisLoadId !== currentLoadId) return;
+                    if (!res.ok) throw new Error("manifest HTTP " + res.status);
+                    const md = await res.json();
+                    // Clé ClearKey { kidHex: keyHex } → Shaka déchiffre côté client.
+                    // Buffering agressif : démarre la lecture dès ~1,5 s au lieu d'attendre
+                    // un gros tampon (Amazon n'a qu'un seul gros segment, on veut jouer vite).
+                    nextShaka.configure({
+                        drm: { clearKeys: { [md.kid]: md.key } },
+                        streaming: { rebufferingGoal: 1.5, bufferingGoal: 8, bufferBehind: 30 }
+                    });
+                    const dashUri = 'data:application/dash+xml;base64,' + md.manifest;
+                    await nextShaka.load(dashUri);
+                    console.log("✅ Loaded Amazon Music (ClearKey FLAC) for:", nextTrack.title);
+                } catch (e) {
+                    console.error("Amazon Load Error", e);
+                    handlePlaybackError(index);
+                    return;
+                }
+            }
+            // Gestion Source DEEZER FLAC (secours quand Qobuz n'a pas le titre — déchiffré par plages)
+            else if (nextTrack.source === 'deezer_flac') {
+                await nextShaka.unload();
+                nextAudio.src = `${API_BASE}/deezer_stream/${nextTrack.id}`;
+                console.log("✅ Loading Deezer FLAC fallback for:", nextTrack.title);
+            }
+            // Gestion Source TIDAL (FLAC non chiffré via hifi-api ; segments proxifiés)
+            // PAS de repli Qobuz : un titre Tidal se lit en Tidal, ou pas du tout.
+            else if (nextTrack.source === 'tidal_hund') {
+                await nextShaka.unload();
+                try {
+                    await loadTidalIntoShaka(nextShaka, nextTrack.id, abortSignal);
+                    if (thisLoadId !== currentLoadId) return;
+                    console.log("✅ Loaded Tidal (FLAC DASH) for:", nextTrack.title);
+                } catch (e) {
+                    if (e && e.name === 'AbortError') return;  // zapping : chargement annulé, normal
+                    console.error("Tidal Load Error", e);
+                    if (thisLoadId !== currentLoadId) return;
+                    showToast(`❌ Tidal indisponible pour ce titre : ${nextTrack.title}`);
+                    document.getElementById('playIcon').className = 'fas fa-exclamation-triangle';
+                    return;  // surtout PAS de repli Qobuz
+                }
+            }
+            else {
+                // Standard Track (URL directe)
+                await nextShaka.unload();
+
+                let url = '';
+                // Fallback ultime : si la source n'est toujours pas Qobuz, Tidal ou Amazon après résolution, on utilise le resolveur stream
+                if (nextTrack.source !== 'qobuz' && nextTrack.source !== 'tidal_hund' && nextTrack.source !== 'amazon_music') {
+                    const artist = nextTrack.performer ? nextTrack.performer.name : 'Inconnu';
+                    url = `${API_BASE}/resolve_stream?title=${encodeURIComponent(nextTrack.title)}&artist=${encodeURIComponent(artist)}`;
+                }
+                else {
+                    // Utiliser l'URL pré-résolue si disponible (évite l'appel alt API)
+                    const trackIdStr = String(nextTrack.id);
+                    const preFetched = prefetchedStreamUrls[trackIdStr];
+                    if (preFetched && (Date.now() - preFetched.fetchedAt) < PREFETCH_TTL) {
+                        url = preFetched.url;
+                        delete prefetchedStreamUrls[trackIdStr];
+                        console.log(`[Prefetch] ✅ URL directe utilisée pour ${nextTrack.title}`);
+                    } else {
+                        url = `${API_BASE}/stream/${nextTrack.id}`;
+                    }
+                }
+
+                // CHECK CONCURRENCY
+                if (thisLoadId !== currentLoadId) return;
+
+                nextAudio.src = url;
+            }
+
+            // FINAL CHECK BEFORE PLAYING
+            if (thisLoadId !== currentLoadId) return;
+
+            if (nextTrack.source !== 'yt_lazy' && nextTrack.source !== 'spotify_lazy' && nextTrack.source !== 'chart_lazy' && nextTrack.source !== 'deezer' && nextTrack.source !== 'deezer_flac' && nextTrack.source !== 'tidal_hund' && nextTrack.source !== 'subsonic' && nextTrack.source !== 'amazon_music') safePushState({}, "", `/?track=${nextTrack.id}&source=${nextTrack.source}`);
+
+            // Force disable crossfade if direct audio
+            startCrossfade(prevAudio, nextAudio, useCrossfade && !userSettings.directAudio);
+
+            activeAudio = nextAudio;
+            nextTrackTriggered = false;  // nouvelle piste active → on ré-autorise l'avance auto
+
+            setupMediaSession(nextTrack); fetchLyrics(nextTrack, nextTrack.performer ? nextTrack.performer.name : 'Artiste');
+
+            // RADIO TRIGGER LOGIC (Improved)
+            if (index === tracks.length - 1) {
+                setTimeout(() => {
+                    if (!isFetchingRadio) triggerRadio(true);
+                }, 500);
+            }
+
+            if (autoPlay) {
+                play();
+            }
+
+            // Pré-résoudre l'URL de la piste suivante en arrière-plan
+            setTimeout(() => prefetchNextTrackUrl(index + 1), 1500);
+
+            if (document.getElementById('queuePanel').classList.contains('active')) renderQueueList();
+        }
+
+        // --- MISE A JOUR DES FAVORIS (CORRECTION PERMANENTE - DEEP SEARCH) ---
+        async function updateFavoriteIfNeeded(oldId, newMeta, directDbRowId = null) {
+            if (!supabaseClient) return;
+
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (!user) return;
+
+            console.log(`[Repair] Tentative de réparation pour ${oldId} (${newMeta.title})...`);
+
+            const currentSig = getTrackSignature(newMeta);
+            let rowIdsToUpdate = [];
+
+            // 1. Si on a le db_row_id directement (track joué depuis les favoris), on l'utilise immédiatement
+            if (directDbRowId) {
+                rowIdsToUpdate = [directDbRowId];
+                console.log(`[Repair] db_row_id direct utilisé : ${directDbRowId}`);
+            } else {
+                // 2. Recherche dans les favoris locaux par ID ou signature titre|artiste
+                const matches = favorites.filter(f =>
+                    String(f.id) === String(oldId) ||
+                    getTrackSignature(f) === currentSig
+                );
+                rowIdsToUpdate = matches.map(m => m.db_row_id).filter(Boolean);
+
+                // 3. Si toujours rien : deux requêtes Supabase séparées (plus fiable que .or() avec JSON)
+                if (rowIdsToUpdate.length === 0) {
+                    console.log('[Repair] Recherche sur Supabase...');
+                    const [{ data: byTrackId }, { data: byDataId }] = await Promise.all([
+                        supabaseClient.from('favorites').select('id').eq('user_id', user.id).eq('track_id', String(oldId)),
+                        supabaseClient.from('favorites').select('id').eq('user_id', user.id).filter('track_data->>id', 'eq', String(oldId))
+                    ]);
+                    const allFound = [...(byTrackId || []), ...(byDataId || [])];
+                    rowIdsToUpdate = [...new Set(allFound.map(f => f.id))];
+                    console.log(`[Repair] ${rowIdsToUpdate.length} ligne(s) trouvée(s) sur Supabase.`);
+                }
+            }
+
+            if (rowIdsToUpdate.length === 0) {
+                console.warn(`[Repair] Aucun favori trouvé pour id=${oldId} (${newMeta.title})`);
+                return;
+            }
+
+            // 4. Mise à jour de chaque ligne dans Supabase
+            for (const rowId of rowIdsToUpdate) {
+                const { data: updated, error } = await supabaseClient
+                    .from('favorites')
+                    .update({
+                        track_id: String(newMeta.id),
+                        track_data: { ...newMeta, db_row_id: rowId, fromSearch: false }
+                    })
+                    .eq('id', rowId)
+                    .eq('user_id', user.id)
+                    .select();
+
+                if (error) {
+                    console.error(`[Repair] ❌ Erreur update ${rowId}:`, error);
+                } else if (!updated || updated.length === 0) {
+                    console.error(`[Repair] ❌ Update bloqué (0 lignes affectées) pour ${rowId} — vérifiez les politiques RLS Supabase (UPDATE manquant ?)`);
+                    showToast('⚠️ Erreur : mise à jour Supabase bloquée (politique RLS)');
+                } else {
+                    console.log(`[Repair] ✅ Ligne ${rowId} mise à jour → ${newMeta.source}:${newMeta.id}`);
+                }
+            }
+
+            // 5. Mise à jour du tableau local
+            favorites.forEach((f, idx) => {
+                if (String(f.id) === String(oldId) || getTrackSignature(f) === currentSig || rowIdsToUpdate.includes(f.db_row_id)) {
+                    favorites[idx] = { ...newMeta, db_row_id: favorites[idx].db_row_id, fromSearch: false };
+                }
+            });
+
+            // 6. Rafraîchissement UI si on est sur la vue Favoris
+            if (document.getElementById('trackView').dataset.view === 'favorites') showFavorites();
+        }
+
+        // --- RÉPARATION PROACTIVE DES SOURCES INSTABLES AU CHARGEMENT ---
+        async function repairUnstableFavorites() {
+            const REPAIR_TTL = 24 * 60 * 60 * 1000; // 24h entre chaque vérification
+            const now = Date.now();
+
+            const toRepair = favorites.filter(f => {
+                // Toutes les sources peuvent avoir des IDs périmés
+                const knownSources = ['spotify_lazy', 'tidal_hund', 'subsonic', 'yt_lazy', 'qobuz', 'amazon_music', 'deezer'];
+                if (!knownSources.includes(f.source)) return false;
+                // Skip si déjà vérifié dans les dernières 24h
+                if (f._repaired_at && (now - new Date(f._repaired_at).getTime()) < REPAIR_TTL) return false;
+                return true;
+            });
+
+            if (toRepair.length === 0) {
+                console.log('[Repair] Tous les favoris sont à jour.');
+                return;
+            }
+            console.log(`[Repair] ${toRepair.length} favori(s) à vérifier/réparer...`);
+
+            for (const fav of toRepair) {
+                try {
+                    const artist = fav.performer ? fav.performer.name : (fav.artist ? fav.artist.name : '');
+                    const isrc = fav.isrc || '';
+                    // On accepte de continuer même sans titre si on a un ISRC
+                    if (!isrc && (!fav.title || !artist)) continue;
+
+                    const params = new URLSearchParams({
+                        title: fav.title || '',
+                        artist: artist || '',
+                        ...(isrc && { isrc })
+                    });
+                    const res = await fetch(`${API_BASE}/resolve_metadata?${params}`);
+                    if (res.ok) {
+                        const newMeta = await res.json();
+                        // Marquer comme vérifié pour éviter de re-vérifier dans les 24h
+                        newMeta._repaired_at = new Date().toISOString();
+                        if (newMeta.id !== fav.id || newMeta.source !== fav.source) {
+                            console.log(`[Repair] ✅ ${fav.title} : ${fav.source}:${fav.id} → ${newMeta.source}:${newMeta.id}`);
+                        } else {
+                            console.log(`[Repair] ✔ ${fav.title} : ID confirmé (${newMeta.id}), timestamp mis à jour`);
+                        }
+                        await updateFavoriteIfNeeded(fav.id, newMeta, fav.db_row_id);
+                    }
+                } catch (e) { console.warn('[Repair] Erreur:', fav.title, e); }
+                // Délai entre chaque appel pour ne pas saturer l'API
+                await new Promise(r => setTimeout(r, 400));
+            }
+            console.log('[Repair] Vérification terminée.');
+        }
+
+        // --- GESTION DU FALLBACK AUTO (EN CAS D'ERREUR) ---
+        let fallbackRetries = {};
+
+        // Cache des URLs Qobuz pré-résolues (piste suivante)
+        const prefetchedStreamUrls = {};
+        const PREFETCH_TTL = 20 * 60 * 1000; // 20 min
+
+        async function prefetchNextTrackUrl(nextIndex) {
+            if (nextIndex < 0 || nextIndex >= tracks.length) return;
+            const next = tracks[nextIndex];
+            if (!next) return;
+            const id = String(next.id);
+            const cached = prefetchedStreamUrls[id];
+            if (cached && (Date.now() - cached.fetchedAt) < PREFETCH_TTL) return;
+            if (next.source === 'qobuz') {
+                try {
+                    const r = await fetch(`${API_BASE}/stream_url/${id}`);
+                    if (r.ok) {
+                        const { url } = await r.json();
+                        if (url) prefetchedStreamUrls[id] = { url, fetchedAt: Date.now() };
+                        console.log(`[Prefetch] ✅ URL Qobuz pré-résolue pour piste ${nextIndex}`);
+                    }
+                } catch (e) { }
+            }
+            // Rien à préchauffer pour Tidal : le manifeste est résolu à la demande (pas de
+            // cache serveur), donc un pré-appel ne ferait que charger le serveur pour rien.
+        }
+
+        async function handlePlaybackError(index) {
+            const track = tracks[index];
+            if (!track) return;
+
+            // Tidal : jamais de repli/réparation Qobuz — un titre Tidal se lit en Tidal ou pas du tout.
+            if (track.source === 'tidal_hund') {
+                showToast(`❌ Tidal indisponible pour ce titre : ${track.title}`);
+                document.getElementById('playIcon').className = 'fas fa-exclamation-triangle';
+                return;
+            }
+
+            // Éviter les boucles infinies
+            if (fallbackRetries[index] && fallbackRetries[index] >= 1) {
+                console.warn("Échec définitif du fallback pour ce titre.");
+                showToast(`❌ Titre indisponible : ${track.title}`);
+                document.getElementById('playIcon').className = 'fas fa-exclamation-triangle';
+
+                if (tracks.length > 1 && currentIndex < tracks.length - 1) {
+                    setTimeout(() => {
+                        if (currentIndex === index) loadTrack(currentIndex + 1, true, false);
+                    }, 2000);
+                }
+                return;
+            }
+
+            fallbackRetries[index] = (fallbackRetries[index] || 0) + 1;
+            showToast("Source corrompue, recherche d'un fallback... 🔍");
+
+            const success = await attemptTrackFallback(index);
+            if (!success) {
+                // Si pas de fallback, on passe au suivant
+                if (tracks.length > 1 && currentIndex < tracks.length - 1) {
+                    setTimeout(() => {
+                        if (currentIndex === index) loadTrack(currentIndex + 1, true, false);
+                    }, 2000);
+                } else {
+                    document.getElementById('playIcon').className = 'fas fa-exclamation-triangle';
+                }
+            }
+        }
+
+        async function attemptTrackFallback(index) {
+            const track = tracks[index];
+            const artistName = track.performer ? track.performer.name : (track.artist ? track.artist.name : 'Inconnu');
+            const oldId = track.id;
+            const directDbRowId = track.db_row_id || null;
+
+            try {
+                const params = new URLSearchParams({
+                    title: track.title || '',
+                    artist: artistName,
+                    ...(track.isrc && { isrc: track.isrc })
+                });
+                const res = await fetch(`${API_BASE}/resolve_metadata?${params}`);
+                if (res.ok) {
+                    const newMeta = await res.json();
+                    console.log("✅ Fallback trouvé :", newMeta.source, newMeta.id);
+
+                    tracks[index] = { ...track, ...newMeta, db_row_id: directDbRowId };
+
+                    // Mise à jour permanente dans Supabase avec db_row_id direct
+                    await updateFavoriteIfNeeded(oldId, newMeta, directDbRowId);
+
+                    showToast("Source réparée, reprise... ✨");
+                    loadTrack(index, true, false);
+                    return true;
+                }
+            } catch (e) {
+                console.error("Fallback Resolution Error:", e);
+            }
+            return false;
+        }
+
+        function startCrossfade(prevAudio, nextAudio, enableFade) {
+            // DIRECT AUDIO MODE: Hard Cut (No Web Audio)
+            if (userSettings.directAudio || !audioCtx || !zenithNode) {
+                prevAudio.pause();
+                prevAudio.currentTime = 0;
+                return;
+            }
+
+            const duration = enableFade ? userSettings.crossfade : 0;
+            const currentTime = audioCtx.currentTime;
+            const targetValue = (nextAudio === playerA) ? 0 : 1;
+            const xfadeParam = zenithNode.parameters.get('crossfade');
+
+            if (crossfadeTimeout) {
+                clearTimeout(crossfadeTimeout);
+                crossfadeTimeout = null;
+            }
+
+            // Safety cleanup: Ensure prevAudio is paused if fade duration is 0
+            // OR if we are interrupting a fade
+            if (duration === 0) {
+                try {
+                    prevAudio.pause();
+                    prevAudio.currentTime = 0;
+                } catch (e) { }
+
+                xfadeParam.cancelScheduledValues(currentTime);
+                xfadeParam.setValueAtTime(targetValue, currentTime);
+                return;
+            }
+
+            isFading = true;
+            const startValue = (prevAudio === playerA) ? 0 : 1;
+
+            xfadeParam.cancelScheduledValues(currentTime);
+            xfadeParam.setValueAtTime(startValue, currentTime);
+            xfadeParam.linearRampToValueAtTime(targetValue, currentTime + duration);
+
+            crossfadeTimeout = setTimeout(() => {
+                try {
+                    prevAudio.pause();
+                    prevAudio.currentTime = 0;
+                } catch (e) { }
+                isFading = false;
+                crossfadeTimeout = null;
+            }, duration * 1000);
+        }
+
+        function attachListeners(audioObj) {
+            audioObj.onloadedmetadata = () => {
+                if (audioObj === activeAudio) {
+                    let d = audioObj.duration; const t = tracks[currentIndex];
+                    if ((!d || !isFinite(d)) && t && t.duration) d = t.duration;
+                    document.getElementById('totTime').innerText = fmtTime(d); updateMediaSessionState();
+                }
+            };
+            audioObj.ontimeupdate = () => {
+                // RADIO LOGIC: Trigger near end of track if queue is exhausted
+                // On vérifie seulement si on est à la fin de la file d'attente
+                if (currentIndex === tracks.length - 1 && !isFetchingRadio && isPlaying) {
+                    const rem = audioObj.duration - audioObj.currentTime;
+                    // On déclenche si reste moins de 40s (préchargement)
+                    if (rem < 40 && rem > 0) { triggerRadio(true); }
+                }
+                if (audioObj === activeAudio && isPlaying && !nextTrackTriggered) {
+                    let d = audioObj.duration;
+                    if (d > 0 && audioObj.currentTime >= d - 0.5) {
+                        nextTrackTriggered = true;
+                        handleNext();
+                        return;
+                    }
+                }
+                if (audioObj === activeAudio && !document.hidden) {
+                    // On limite les écritures DOM (barre + temps) à ~4/s pour alléger le thread principal
+                    const _nowUi = Date.now();
+                    if (_nowUi - lastUiUpdate > 250) {
+                        lastUiUpdate = _nowUi;
+                        let d = audioObj.duration; if ((!d || !isFinite(d)) && tracks[currentIndex] && tracks[currentIndex].duration) d = tracks[currentIndex].duration;
+                        if (d && isFinite(d)) { document.getElementById('progressFill').style.width = (audioObj.currentTime / d) * 100 + '%'; }
+                        document.getElementById('currTime').innerText = fmtTime(audioObj.currentTime);
+                    }
+
+                    // HISTORIQUE 10s CHECK
+                    // Si on a écouté plus de 10s et qu'on n'a pas encore sauvegardé
+                    if (!currentHistorySaveState.saved && audioObj.currentTime > 10) {
+                        currentHistorySaveState.saved = true;
+                        saveTrackToHistory(tracks[currentIndex]);
+                    }
+
+                    // THROTTLE LYRICS (Optimisation CPU)
+                    const now = Date.now();
+                    if (now - lastLyricsUpdate > 200) { // Max 5 fois par seconde
+                        syncLyricsUI();
+                        lastLyricsUpdate = now;
+                    }
+
+                    // DEBOUNCE MEDIA SESSION (Optimisation OS)
+                    if (Math.random() > 0.9) updateMediaSessionState();
+                }
+            };
+            audioObj.onended = () => { if (audioObj === activeAudio && !nextTrackTriggered) handleNext(); };
+
+            audioObj.onerror = () => {
+                if (audioObj === activeAudio && audioObj.src) {
+                    console.error("Erreur Audio HTML5:", audioObj.error);
+                    handlePlaybackError(currentIndex);
+                }
+            };
+        }
+        attachListeners(playerA); attachListeners(playerB);
+
+        // --- GESTION SHUFFLE ET NEXT ---
+        function toggleShuffle() {
+            isShuffle = !isShuffle;
+            const btn = document.getElementById('btnShuffle');
+            if (isShuffle) {
+                btn.classList.add('active');
+                showToast("Aléatoire activé 🔀");
+            } else {
+                btn.classList.remove('active');
+                showToast("Aléatoire désactivé");
+            }
+        }
+
+        async function handleNext() {
+            if (isShuffle && tracks.length > 1) {
+                let r;
+                // Choisir un index aléatoire différent de l'actuel
+                do { r = Math.floor(Math.random() * tracks.length); } while (r === currentIndex && tracks.length > 1);
+                loadTrack(r);
+            } else {
+                if (currentIndex < tracks.length - 1) {
+                    loadTrack(currentIndex + 1);
+                } else {
+                    // Si on est à la fin, on force la radio
+                    triggerRadio();
+                }
+            }
+        }
+
+        async function triggerRadio(isBackground = false) {
+            if (isFetchingRadio) return;
+
+            isFetchingRadio = true;
+
+            // SECURITY TIMEOUT: Force reset if request takes too long
+            if (radioTimeout) clearTimeout(radioTimeout);
+            radioTimeout = setTimeout(() => {
+                if (isFetchingRadio) {
+                    console.warn("Radio fetch timed out, resetting state.");
+                    isFetchingRadio = false;
+                }
+            }, 20000); // 20 secondes max
+
+            if (!isBackground) { showToast("Recherche radio... 📻"); document.getElementById('radioBadge').style.display = 'block'; isRadioActive = true; }
+
+            const cur = tracks[currentIndex];
+            if (!cur) { isFetchingRadio = false; return; }
+
+            const artist = cur.performer ? cur.performer.name : cur.artist;
+
+            try {
+                const res = await fetch(`${API_BASE}/radio_queue?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(cur.title)}`);
+                const nextTracks = await res.json();
+
+                if (Array.isArray(nextTracks) && nextTracks.length > 0) {
+                    let addedCount = 0;
+                    nextTracks.forEach(raw => {
+                        // Avoid duplicates if possible (simple ID check)
+                        if (raw.id !== cur.id) {
+                            tracks.push(raw);
+                            addedCount++;
+                        }
+                    });
+
+                    if (addedCount > 0) {
+                        if (!isBackground) {
+                            // Si déclenché manuellement, on passe au suivant
+                            loadTrack(currentIndex + 1);
+                        } else {
+                            // Si background, on met juste à jour la liste
+                            if (document.getElementById('queuePanel').classList.contains('active')) renderQueueList();
+                            renderUpNext();
+                            // SUPPRESSION DU TOAST DEMANDÉE ICI
+                        }
+                    } else {
+                        if (!isBackground) showToast("Fin de la radio (doublons).");
+                    }
+                } else {
+                    if (!isBackground) showToast("Aucune recommandation trouvée.");
+                    // En cas d'échec "vide", on force un petit délai avant de pouvoir ré-appeler
+                    setTimeout(() => { isFetchingRadio = false; }, 2000);
+                    return;
+                }
+            } catch (e) {
+                console.error(e);
+                if (!isBackground) showToast("Erreur radio.");
+                // En cas d'erreur réseau, on force un délai
+                setTimeout(() => { isFetchingRadio = false; }, 2000);
+                return;
+            }
+
+            // Succès normal
+            isFetchingRadio = false;
+            if (radioTimeout) clearTimeout(radioTimeout);
+        }
+
+        function updateInterfaceInfo(t) {
+            let img = '';
+            if (t.source === 'subsonic') {
+                // FALLBACK POUR SUBSONIC : On utilise le placeholder car les ID images sont morts
+                img = 'https://placehold.co/600x600/1a1a1a/666666?text=Musique';
+            } else {
+                img = (t.album.image.large || '').replace('_300', '_600');
+            }
+
+            if (!img) img = "https://placehold.co/600x600/1a1a1a/666666?text=Zenith";
+
+            // GENERATION IMAGE BASSE QUALITÉ POUR LE BACKGROUND (OPTIMISATION)
+            let bgImg = img;
+            if (t.source !== 'subsonic') {
+                // Remplacement intelligent des patterns d'URL
+                if (bgImg.includes('_600')) bgImg = bgImg.replace('_600', '_300'); // Qobuz
+                else if (bgImg.includes('1000x1000')) bgImg = bgImg.replace('1000x1000', '200x200'); // Deezer
+                else if (bgImg.includes('600x600')) bgImg = bgImg.replace('600x600', '200x200'); // Deezer fallback
+                else if (bgImg.includes('w1200-h1200')) bgImg = bgImg.replace('w1200-h1200', 'w200-h200'); // YouTube
+                else if (bgImg.includes('resources.tidal.com')) bgImg = bgImg.replace('640x640', '320x320'); // Tidal
+                // Amazon Music images are already optimized, no resize needed
+            }
+
+            let artistName = t.performer ? t.performer.name : 'Artiste';
+            const xlArt = document.getElementById('xlArt'); const capArt = document.getElementById('capArt'); const amb = document.getElementById('ambientBg');
+            const textEls = ['xlTitle', 'xlArtist', 'xlBadge', 'capTitle', 'capArtist'].map(id => document.getElementById(id));
+            textEls.forEach(el => el.classList.add('fade-out-active'));
+            setTimeout(() => {
+                document.getElementById('xlTitle').innerText = t.title; document.getElementById('xlArtist').innerText = artistName; document.getElementById('capTitle').innerText = t.title; document.getElementById('capArtist').innerText = artistName;
+                updateQualityInfo(t);
+                renderUpNext();
+                if (magicEnabled) checkMagic(t.title, artistName);
+                textEls.forEach(el => el.classList.remove('fade-out-active'));
+            }, 300);
+
+            const currentSrc = xlArt.getAttribute('src') || '';
+            if (currentSrc !== img) {
+                xlArt.classList.add('fade-out-active'); capArt.classList.add('fade-out-active');
+
+                // On met à jour le background immédiatement avec la basse qualité
+                if (amb.style.opacity != '1') amb.style.opacity = '1';
+                amb.style.backgroundImage = `url('${bgImg}')`;
+
+                const tempImg = new Image();
+                tempImg.onload = () => {
+                    xlArt.src = img;
+                    capArt.src = img;
+                    xlArt.classList.remove('fade-out-active');
+                    capArt.classList.remove('fade-out-active');
+                };
+                tempImg.src = img;
+                setTimeout(() => { xlArt.classList.remove('fade-out-active'); capArt.classList.remove('fade-out-active'); }, 1000);
+            } else {
+                // Même si l'image principale ne change pas, on s'assure que le fond est là
+                if (amb.style.opacity != '1') {
+                    amb.style.backgroundImage = `url('${bgImg}')`;
+                    amb.style.opacity = '1';
+                }
+            }
+        }
+
+        async function openArtistProfile(name, id = null, source = null) {
+            let query = `/?artist_profile=${encodeURIComponent(name)}`;
+            if (id && source === 'deezer') query += `&id=${id}&source=${source}`;
+            safePushState({}, "", query);
+
+            isLyricsMode = false;
+            hideAllViews();
+
+            const view = document.getElementById('artistView');
+            view.style.display = 'block';
+            view.scrollTop = 0;
+
+            // État de chargement initial
+            document.getElementById('artistProfileName').innerText = name;
+            document.getElementById('artistProfileImg').src = 'https://placehold.co/200x200/17171d/3a3a46?text=%E2%80%A6';
+            document.getElementById('artistHeaderBg').removeAttribute('src');
+            document.getElementById('artistTopTracks').innerHTML = uiState('loading', 'Chargement des titres…');
+            document.getElementById('artistAlbums').innerHTML = uiState('loading', 'Chargement des albums…');
+
+            // Réinitialisation de la bio avant chargement
+            const bioEl = document.getElementById('artistProfileBio');
+            bioEl.style.display = 'none';
+            bioEl.innerText = '';
+            bioEl.style.cursor = 'default';
+            bioEl.onclick = null;
+
+            // Suppression du bouton lire la suite s'il existe
+            const prevBtn = document.getElementById('bioReadMoreBtn');
+            if (prevBtn) prevBtn.remove();
+
+            try {
+                let apiUrl = `${API_BASE}/artist_bio?name=${encodeURIComponent(name)}`;
+                if (id && source === 'deezer') apiUrl += `&id=${id}&source=${source}`;
+
+                const res = await fetch(apiUrl);
+                const data = await res.json();
+
+                // 1. Infos Artiste
+                document.getElementById('artistProfileName').innerText = data.name || name;
+                if (data.image) {
+                    document.getElementById('artistProfileImg').src = data.image;
+                    document.getElementById('artistHeaderBg').src = data.image;
+                }
+
+                // AFFICHAGE BIO
+                if (document.getElementById('bioReadMoreBtn')) document.getElementById('bioReadMoreBtn').remove();
+
+                if (data.bio) {
+                    bioEl.innerHTML = data.bio
+                        .replace(/<script[\s\S]*?<\/script>/gi, '')
+                        .replace(/<style[\s\S]*?<\/style>/gi, '')
+                        .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+                        .replace(/javascript\s*:/gi, '')
+                        .replace(/<(?!\/?(?:br|p|b|i|em|strong|a)\b)[^>]+>/gi, '');
+                    bioEl.style.display = 'block';
+
+                    // Improved truncation logic (visual lines approximation)
+                    const lineCount = data.bio.split('\n').length;
+                    if (data.bio.length > 150 || lineCount > 3) {
+                        bioEl.classList.add('bio-collapsed');
+                        bioEl.style.cursor = 'pointer';
+
+                        const btn = document.createElement('button');
+                        btn.id = 'bioReadMoreBtn';
+                        btn.className = 'bio-readmore-btn';
+                        btn.innerHTML = 'Lire la suite <i class="fas fa-chevron-down"></i>';
+
+                        const toggleBio = () => {
+                            const isCollapsed = bioEl.classList.contains('bio-collapsed');
+                            if (isCollapsed) {
+                                bioEl.classList.remove('bio-collapsed');
+                                btn.innerHTML = 'Réduire <i class="fas fa-chevron-up"></i>';
+                            } else {
+                                bioEl.classList.add('bio-collapsed');
+                                btn.innerHTML = 'Lire la suite <i class="fas fa-chevron-down"></i>';
+                            }
+                        };
+
+                        btn.onclick = (e) => {
+                            e.stopPropagation();
+                            toggleBio();
+                        };
+
+                        bioEl.onclick = () => {
+                            if (bioEl.classList.contains('bio-collapsed')) toggleBio();
+                        };
+
+                        bioEl.parentNode.appendChild(btn);
+                    } else {
+                        bioEl.classList.remove('bio-collapsed');
+                        bioEl.style.cursor = 'default';
+                        bioEl.onclick = null;
+                    }
+                } else {
+                    bioEl.style.display = 'none';
+                }
+
+                // 2. Top Titres (Affichage Liste)
+                const grid = document.getElementById('artistTopTracks');
+                grid.innerHTML = '';
+                if (data.top_tracks && data.top_tracks.length > 0) {
+                    data.top_tracks.forEach((t, i) => {
+                        const div = document.createElement('div');
+                        div.className = 'track-row';
+                        div.dataset.id = t.id; // Added for highlight
+
+                        let img = t.album && t.album.image && t.album.image.large ? t.album.image.large.replace('_300', '_600') : 'https://placehold.co/60x60/17171d/3a3a46?text=%E2%99%AA';
+                        const badge = t.maximum_bit_depth > 16 ? '<div class="type-badge badge-hires">HI-RES</div>' : '<span></span>';
+
+                        div.innerHTML = `
+                            <div class="track-row-num">${i + 1}</div>
+                            <img src="${img}" class="track-row-img" loading="lazy" alt="">
+                            <div class="track-row-info">
+                                <div class="track-row-title">${t.title}</div>
+                                <div class="track-row-meta">${(t.album && t.album.title) || 'Single'}</div>
+                            </div>
+                            ${badge}
+                            <div class="track-row-time">${fmtTime(t.duration)}</div>
+                        `;
+                        div.onclick = () => {
+                            tracks = data.top_tracks.map(x => ({ id: x.id, title: x.title, performer: { name: x.performer ? x.performer.name : data.name }, album: x.album, source: x.source, maximum_bit_depth: x.maximum_bit_depth, duration: x.duration }));
+                            const idx = tracks.findIndex(tr => tr.id === t.id);
+                            loadTrack(idx !== -1 ? idx : 0);
+                        };
+                        grid.appendChild(div);
+                    });
+                } else {
+                    grid.innerHTML = uiState('empty', 'Aucun titre populaire trouvé.', 'fa-music');
+                }
+
+                // 3. Albums (Affichage Grille)
+                const albumGrid = document.getElementById('artistAlbums');
+                albumGrid.innerHTML = '';
+                if (data.albums && data.albums.length > 0) {
+                    data.albums.forEach(a => {
+                        const div = document.createElement('div');
+                        div.className = 'track-card';
+
+                        let img = a.image && a.image.large ? a.image.large.replace('_300', '_600') : 'https://placehold.co/300x300/17171d/3a3a46?text=Album';
+                        const b = a.maximum_bit_depth > 16 ? '<div class="type-badge badge-hires">HI-RES</div>' : '';
+                        const year = a.release_date_original ? a.release_date_original.substring(0, 4) : '';
+
+                        div.innerHTML = `
+                            <div class="card-media">
+                                <img src="${img}" loading="lazy" alt="">
+                                <div class="badges-container">${b}</div>
+                                <span class="card-play"><i class="fas fa-play"></i></span>
+                            </div>
+                            <h3>${a.title}</h3>
+                            <p>${year ? year + ' · ' : ''}Album</p>
+                        `;
+                        div.onclick = () => openAlbum(a.id, a.source);
+                        albumGrid.appendChild(div);
+                    });
+                } else {
+                    albumGrid.innerHTML = uiState('empty', 'Aucun album trouvé.', 'fa-compact-disc');
+                }
+
+                updateActiveCard();
+
+            } catch (e) {
+                console.error(e);
+                document.getElementById('artistTopTracks').innerHTML = uiState('error', 'Impossible de charger cet artiste.');
+                document.getElementById('artistAlbums').innerHTML = '';
+            }
+        }
+        function play() { if (audioCtx && audioCtx.state === 'suspended' && !userSettings.directAudio) audioCtx.resume(); activeAudio.play().then(() => { isPlaying = true; document.getElementById('playIcon').className = 'fas fa-pause'; updateMediaSessionState(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = "playing"; if (typeof broadcastPlay === 'function') broadcastPlay(); }).catch(e => { }); }
+        function pause() { playerA.pause(); playerB.pause(); isPlaying = false; document.getElementById('playIcon').className = 'fas fa-play'; if ('mediaSession' in navigator) navigator.mediaSession.playbackState = "paused"; if (typeof broadcastPause === 'function') broadcastPause(); }
+        function fmtTime(s) { if (!s || isNaN(s)) return "0:00"; let m = Math.floor(s / 60), sec = Math.floor(s % 60); return m + ":" + (sec < 10 ? "0" : "") + sec; }
+        function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2000); }
+        function copyLink() { if (!currentTrackId) return; const t = tracks[currentIndex]; navigator.clipboard.writeText(`${window.location.origin}/?track=${t.id}&source=${t.source}`).then(() => showToast('Lien copié !')); }
+
+        async function toggleLike() {
+            const btn = document.getElementById('btnLike');
+            if (btn.disabled) return;
+            btn.disabled = true;
+
+            try {
+                const t = tracks[currentIndex];
+                if (!t) return;
+
+                const { data: { user } } = await supabaseClient.auth.getUser();
+                if (!user) { showToast("Connectez-vous pour liker !"); return; }
+
+                const idx = favorites.findIndex(f => String(f.id) === String(t.id));
+
+                if (idx === -1) {
+                    favorites.push(t);
+                    btn.innerHTML = '<i class="fas fa-heart"></i>';
+                    btn.style.color = 'var(--secondary)';
+                    showToast('Liké ❤️');
+                    try {
+                        const { data: inserted, error } = await supabaseClient.from('favorites').insert({ user_id: user.id, track_id: String(t.id), track_data: t }).select();
+                        if (inserted && inserted[0]) {
+                            // On stocke le UUID retourné pour pouvoir mettre à jour précisément via fallback plus tard
+                            t.db_row_id = inserted[0].id;
+                        }
+                        if (error) throw error;
+                    } catch (e) { console.error(e); }
+                } else {
+                    const toDelete = favorites[idx];
+                    favorites.splice(idx, 1);
+                    btn.innerHTML = '<i class="far fa-heart"></i>';
+                    btn.style.color = 'var(--text-dim)';
+                    showToast('Disliké 💔');
+                    try {
+                        let q = supabaseClient.from('favorites').delete().eq('user_id', user.id);
+                        if (toDelete.db_row_id) q = q.eq('id', toDelete.db_row_id);
+                        else q = q.eq('track_id', String(t.id));
+                        await q;
+                    } catch (e) { console.error(e); }
+                }
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function updateLikeButtonState() { const t = tracks[currentIndex]; if (!t) return; const idx = favorites.findIndex(f => String(f.id) === String(t.id)); const btn = document.getElementById('btnLike'); if (idx !== -1) { btn.innerHTML = '<i class="fas fa-heart"></i>'; btn.style.color = 'var(--secondary)'; } else { btn.innerHTML = '<i class="far fa-heart"></i>'; btn.style.color = 'var(--text-dim)'; } }
+
+        function getTrackSignature(t) {
+            if (!t) return "";
+            const artist = t.performer ? t.performer.name : (t.artist ? t.artist.name : '');
+            return cleanString(t.title) + "|" + cleanString(artist);
+        }
+
+        async function saveTrackToHistory(track) {
+            if (!supabaseClient) return;
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (!user) return;
+
+            const currentSig = getTrackSignature(track);
+
+            // DEDUPLICATION 1 : Eviter sauvegardes consécutives immédiates
+            if (window.userHistory.length > 0) {
+                const lastSig = getTrackSignature(window.userHistory[0]);
+                if (currentSig === lastSig) {
+                    console.log("History: Skipping consecutive duplicate");
+                    return;
+                }
+            }
+
+            // DEDUPLICATION 2 : Nettoyage proactif des anciennes occurrences
+            // On cherche si ce titre existe déjà dans l'historique chargé pour le supprimer de la DB
+            // afin qu'il remonte proprement en haut sans créer de doublon
+            const existingEntry = window.userHistory.find(h => getTrackSignature(h) === currentSig);
+            if (existingEntry && existingEntry.history_db_id) {
+                try {
+                    await supabaseClient.from('history').delete().eq('id', existingEntry.history_db_id);
+                    console.log("History: Removed old entry to move to top");
+                } catch (e) { console.warn("Failed to delete old history item", e); }
+            }
+
+            const cleanTrack = { ...track, isRadio: false };
+
+            try {
+                // Insertion standard
+                const { error } = await supabaseClient.rpc('add_track_to_history', {
+                    p_user_id: user.id,
+                    p_track_id: String(track.id),
+                    p_track_data: cleanTrack
+                });
+
+                if (error) throw error;
+                await loadUserHistory();
+
+            } catch (e) { console.error("Erreur historique:", e); }
+        }
+
+        window.loadUserHistory = async function () {
+            if (!supabaseClient) { window.userHistory = []; return; }
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (!user) { window.userHistory = []; return; }
+
+            try {
+                // On récupère aussi l'ID de la ligne ('id') pour pouvoir supprimer plus tard
+                const { data, error } = await supabaseClient
+                    .from('history')
+                    .select('id, track_data, played_at')
+                    .eq('user_id', user.id)
+                    .order('played_at', { ascending: false })
+                    .limit(100);
+
+                if (data) {
+                    const seenSigs = new Set();
+                    window.userHistory = [];
+
+                    data.forEach(item => {
+                        if (!item.track_data) return;
+
+                        // Déduplication basée sur le nom/artiste (normalisé) et non l'ID
+                        const sig = getTrackSignature(item.track_data);
+
+                        if (!seenSigs.has(sig)) {
+                            seenSigs.add(sig);
+                            // On injecte l'ID de la DB pour pouvoir le supprimer plus tard si besoin
+                            window.userHistory.push({
+                                ...item.track_data,
+                                fromSearch: false,
+                                isRadio: false,
+                                history_db_id: item.id // ID technique de la ligne history
+                            });
+                        }
+                    });
+
+                    window.userHistory = window.userHistory.slice(0, 50);
+                } else {
+                    window.userHistory = [];
+                }
+            } catch (e) {
+                console.error("Erreur chargement historique:", e);
+                window.userHistory = [];
+            }
+        };
+
+        function cleanString(s) { return s ? s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/gi, '').trim() : ""; }
+        function updateActiveCard() {
+            // 1. Reset all active marks
+            document.querySelectorAll('.track-card, .track-row').forEach(el => {
+                el.classList.remove('active-track', 'active-row');
+                if (el.querySelector('.playing-indicator')) el.querySelector('.playing-indicator').remove();
+            });
+
+            const currentTrack = tracks[currentIndex];
+            if (!currentTrackId || !currentTrack) return;
+
+            // 2. Marquage UNIQUEMENT par l'ID du titre écouté (pas par titre/artiste),
+            // sinon plusieurs cartes du même titre s'allument en même temps.
+            document.querySelectorAll('.track-card, .track-row').forEach(el => {
+                const elId = el.dataset.id;
+
+                if (elId === String(currentTrackId)) {
+                    if (el.classList.contains('track-card')) {
+                        el.classList.add('active-track');
+                        if (!el.querySelector('.playing-indicator')) {
+                            const ind = document.createElement('div');
+                            ind.className = 'playing-indicator';
+                            ind.title = 'En lecture';
+                            ind.innerHTML = '<span></span><span></span><span></span>';
+                            (el.querySelector('.card-media') || el).appendChild(ind);
+                        }
+                    } else if (el.classList.contains('track-row')) {
+                        el.classList.add('active-row');
+                    }
+                }
+            });
+        }
+        function goHome(p = true) {
+            if (p) safePushState({}, "", "/");
+            resetNavStack();
+            showTracks();
+            setActiveNav('home');
+            document.getElementById('trackView').classList.add('is-home');
+            document.getElementById('trackView').scrollTop = 0;
+            isRadioActive = false;
+            document.getElementById('radioBadge').style.display = 'none';
+
+            // Appel au nouveau Dashboard
+            Dashboard.render();
+        }
+        async function showWeeklyTop() {
+            resetNavStack();
+            showTracks();
+            setActiveNav('top');
+            document.getElementById('searchBarContainer').style.display = 'none';
+            document.getElementById('viewTitle').innerHTML = '<i class="fas fa-trophy"></i> Top 10 de la semaine';
+            document.getElementById('trackGrid').innerHTML = uiState('loading', 'Calcul du classement…');
+            try {
+                const { data, error } = await supabaseClient.rpc('get_weekly_top_tracks');
+                if (error) throw error;
+                if (data && data.length > 0) {
+                    const topTracks = data.map((item, index) => { return { ...item.track_data, rank: index + 1 }; });
+                    renderGrid(topTracks, true);
+                } else {
+                    document.getElementById('trackGrid').innerHTML = uiState('empty', 'Aucun like cette semaine.<br>Soyez le premier à lancer la tendance !', 'fa-trophy');
+                }
+            } catch (e) {
+                console.error("Top 10 Error", e);
+                document.getElementById('trackGrid').innerHTML = uiState('error', 'Impossible de récupérer le classement.');
+            }
+        }
+
+        // --- TOP DES PAYS (charts Apple Music, codes ISO) ---
+        const TOP_COUNTRIES = [
+            { code: 'fr', name: '🇫🇷 France' }, { code: 'us', name: '🇺🇸 États-Unis' },
+            { code: 'gb', name: '🇬🇧 Royaume-Uni' }, { code: 'de', name: '🇩🇪 Allemagne' },
+            { code: 'es', name: '🇪🇸 Espagne' }, { code: 'it', name: '🇮🇹 Italie' },
+            { code: 'be', name: '🇧🇪 Belgique' }, { code: 'ca', name: '🇨🇦 Canada' },
+            { code: 'br', name: '🇧🇷 Brésil' }, { code: 'mx', name: '🇲🇽 Mexique' },
+            { code: 'jp', name: '🇯🇵 Japon' }, { code: 'kr', name: '🇰🇷 Corée du Sud' },
+            { code: 'nl', name: '🇳🇱 Pays-Bas' }, { code: 'au', name: '🇦🇺 Australie' },
+            { code: 'pt', name: '🇵🇹 Portugal' }, { code: 'ma', name: '🇲🇦 Maroc' },
+        ];
+
+        function showTopCountries() {
+            resetNavStack();
+            showTracks();
+            setActiveNav('countries');
+            document.getElementById('searchBarContainer').style.display = 'none';
+            // Pays par défaut : déduit de la langue du navigateur, sinon France
+            const navCC = (navigator.language || 'fr').split('-').pop().toLowerCase();
+            const def = TOP_COUNTRIES.some(c => c.code === navCC) ? navCC : 'fr';
+            const opts = TOP_COUNTRIES.map(c => `<option value="${c.code}"${c.code === def ? ' selected' : ''}>${c.name}</option>`).join('');
+            document.getElementById('viewTitle').innerHTML =
+                `<i class="fas fa-earth-europe"></i> Top des pays` +
+                `<select class="search-select" id="topCountrySelect" onchange="loadTopCountry(this.value)">${opts}</select>`;
+            loadTopCountry(def);
+        }
+
+        async function loadTopCountry(cc) {
+            const g = document.getElementById('trackGrid');
+            g.innerHTML = uiState('loading', 'Chargement du classement…');
+            try {
+                const r = await fetch(`${API_BASE}/top_country?country=${encodeURIComponent(cc)}`);
+                const d = await r.json();
+                if (d.tracks && d.tracks.length) renderGrid(d.tracks, false);
+                else g.innerHTML = uiState('empty', 'Classement indisponible pour ce pays.', 'fa-earth-europe');
+            } catch (e) {
+                console.error('Top pays', e);
+                g.innerHTML = uiState('error', 'Erreur de chargement du classement.');
+            }
+        }
+
+        function showQueue() {
+            resetNavStack();
+            showTracks();
+            document.getElementById('searchBarContainer').style.display = 'none';
+            document.getElementById('viewTitle').innerText = "File d'attente 🎵";
+
+            if (!tracks || tracks.length === 0) {
+                document.getElementById('trackGrid').innerHTML = uiState('empty', 'La file d\'attente est vide.', 'fa-list-ol');
+                return;
+            }
+
+            renderGrid(tracks, false, "File d'attente vide");
+
+            setTimeout(() => {
+                const activeEl = document.querySelector('.track-card.active-track');
+                if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+
+        function toggleLyrics() {
+            isLyricsMode = !isLyricsMode;
+            if (isLyricsMode) {
+                hideAllViews();
+                document.body.classList.remove('np-open');
+                document.getElementById('lyricsView').style.display = 'block';
+                renderSyncedLyrics();
+            } else {
+                // Retour à la vue d'avant (accueil, résultats, favoris…) sans la recharger
+                const wasHome = !!document.querySelector('#trackGrid .dashboard');
+                const title = document.getElementById('viewTitle').innerHTML;
+                showTracks();
+                if (wasHome) { document.getElementById('trackView').classList.add('is-home'); setActiveNav('home'); }
+                else document.getElementById('viewTitle').innerHTML = title;
+            }
+        }
+
+        async function fetchLyrics(t, a, l) {
+            try {
+                // Reset state
+                lyricsData = [];
+                originalLyricsData = [];
+                translatedLyricsData = [];
+                isTranslated = false;
+                document.getElementById('btnTranslate').classList.remove('active');
+                document.getElementById('btnTranslate').innerHTML = '<i class="fas fa-language"></i> Traduire';
+
+                // Annulable : si on zappe, on n'encombre plus le serveur avec les paroles
+                // de la piste précédente (2 appels externes par titre).
+                try { if (window._lyricsAbort) window._lyricsAbort.abort(); } catch (e) {}
+                window._lyricsAbort = new AbortController();
+                const r = await fetch(`${API_BASE}/lyrics?artist=${encodeURIComponent(a)}&title=${encodeURIComponent(t.title)}&album=${encodeURIComponent(l || '')}&duration=${t.duration}`, { signal: window._lyricsAbort.signal });
+                const d = await r.json();
+
+                if (d.type === 'synced') {
+                    parseLRC(d.lyrics);
+                    // Sauvegarde pour la traduction
+                    originalLyricsData = [...lyricsData];
+                    renderSyncedLyrics();
+                } else if (d.type === 'plain') {
+                    // Pour le texte brut, on crée un pseudo-objet pour la logique de traduction
+                    originalLyricsData = [{ text: d.lyrics, isPlain: true }];
+                    const ld = document.createElement('div'); ld.style.cssText = 'white-space:pre-line;font-size:20px;line-height:1.75;font-weight:600;color:rgba(255,255,255,0.86);'; ld.textContent = d.lyrics; document.getElementById('lyricsContent').replaceChildren(ld);
+                } else {
+                    document.getElementById('lyricsContent').innerHTML = '<div class="lyrics-placeholder"><i class="fas fa-microphone-slash" style="font-size:28px;display:block;margin-bottom:12px;"></i>Pas de paroles trouvées pour ce titre.</div>';
+                }
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;  // zapping : normal
+                document.getElementById('lyricsContent').innerHTML = '<div class="lyrics-placeholder">Paroles indisponibles pour le moment.</div>';
+            }
+        }
+
+        async function toggleTranslation() {
+            if (isTranslated) {
+                // Revenir à l'original
+                isTranslated = false;
+                lyricsData = [...originalLyricsData];
+                document.getElementById('btnTranslate').classList.remove('active');
+                document.getElementById('btnTranslate').innerHTML = '<i class="fas fa-language"></i> Traduire';
+
+                if (lyricsData.length > 0 && lyricsData[0].isPlain) {
+                    const lt = document.createElement('div'); lt.style.cssText = 'white-space:pre-line;font-size:20px;line-height:1.75;font-weight:600;color:rgba(255,255,255,0.86);'; lt.textContent = lyricsData[0].text; document.getElementById('lyricsContent').replaceChildren(lt);
+                } else {
+                    renderSyncedLyrics();
+                }
+                return;
+            }
+
+            // Activer la traduction
+            const btn = document.getElementById('btnTranslate');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
+
+            try {
+                // Si on a déjà traduit, on utilise le cache
+                if (translatedLyricsData.length > 0) {
+                    lyricsData = [...translatedLyricsData];
+                } else {
+                    // Sinon on appelle l'API
+                    // Préparation des lignes à traduire
+                    const linesToTranslate = originalLyricsData.map(l => l.text);
+
+                    const res = await fetch(`${API_BASE}/translate_lines`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lines: linesToTranslate, target: 'fr' })
+                    });
+
+                    const data = await res.json();
+
+                    if (data.translated) {
+                        // Reconstruction des données
+                        translatedLyricsData = originalLyricsData.map((l, i) => ({
+                            ...l,
+                            text: data.translated[i] || l.text // Fallback si manque de ligne
+                        }));
+                        lyricsData = [...translatedLyricsData];
+                    }
+                }
+
+                isTranslated = true;
+                btn.classList.add('active');
+                btn.innerHTML = '<i class="fas fa-check"></i> Original';
+
+                if (lyricsData.length > 0 && lyricsData[0].isPlain) {
+                    const lt = document.createElement('div'); lt.style.cssText = 'white-space:pre-line;font-size:20px;line-height:1.75;font-weight:600;color:rgba(255,255,255,0.86);'; lt.textContent = lyricsData[0].text; document.getElementById('lyricsContent').replaceChildren(lt);
+                } else {
+                    renderSyncedLyrics();
+                }
+
+            } catch (e) {
+                console.error("Traduction error:", e);
+                showToast("Erreur traduction");
+                btn.innerHTML = '<i class="fas fa-language"></i> Traduire';
+            }
+        }
+
+        function parseLRC(l) { if (!l) return; try { const ls = l.split('\n'), rx = /^\[(\d{2}):(\d{2})[.:](\d{2,3})\](.*)/; lyricsData = []; ls.forEach(x => { const m = x.match(rx); if (m) { const s = parseInt(m[1]) * 60 + parseInt(m[2]) + (m[3].length === 2 ? parseInt(m[3]) / 100 : parseInt(m[3]) / 1000); lyricsData.push({ time: s, text: m[4].trim() }); } }); if (lyricsData.length > 0) firstLineTime = lyricsData[0].time; } catch (e) { } }
+
+        function renderSyncedLyrics() {
+            if (!isLyricsMode || !lyricsData.length) return;
+            const c = document.getElementById('lyricsContent');
+            c.innerHTML = '';
+            const s = document.createElement('div'); s.style.height = "40vh"; c.appendChild(s);
+            // Optimization: Store elements in array to avoid repeated querySelectorAll
+            lyricsElements = [];
+            lyricsData.forEach((l, i) => {
+                const d = document.createElement('div');
+                d.className = 'lyric-line';
+                d.id = `line-${i}`;
+                d.innerText = l.text;
+                d.onclick = () => { activeAudio.currentTime = l.time; play(); };
+                c.appendChild(d);
+                lyricsElements.push({ el: d, time: l.time });
+            });
+            const b = document.createElement('div'); b.style.height = "40vh"; c.appendChild(b);
+        }
+
+        function syncLyricsUI() {
+            if (!isLyricsMode || !lyricsElements.length) return;
+            const t = activeAudio.currentTime;
+
+            // Trouver l'index de la ligne active
+            let activeIdx = -1;
+            for (let i = 0; i < lyricsElements.length; i++) {
+                if (t >= lyricsElements[i].time) {
+                    activeIdx = i;
+                } else {
+                    break; // Les paroles sont triées par temps, on peut arrêter
+                }
+            }
+
+            // Mise à jour visuelle uniquement si changement
+            const currentActive = document.querySelector('.lyric-line.active');
+            const targetEl = activeIdx !== -1 ? lyricsElements[activeIdx].el : null;
+
+            if (currentActive !== targetEl) {
+                if (currentActive) currentActive.classList.remove('active');
+                if (targetEl) {
+                    targetEl.classList.add('active');
+                    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+            }
+        }
+
+        window.onpopstate = async (e) => { const p = new URLSearchParams(window.location.search); if (p.get('artist_profile')) await openArtistProfile(p.get('artist_profile'), p.get('id'), p.get('source')); else if (p.get('artist')) await openArtist(p.get('artist')); else if (p.get('album')) await openAlbum(p.get('album'), p.get('source')); else if (p.get('q')) { document.getElementById('searchInput').value = p.get('q'); await performSearch(); } else goHome(false); };
+        window.onload = async () => {
+            initShaka(); // Init Shaka
+            loadLocalSettings();
+            const p = new URLSearchParams(window.location.search);
+            if (p.get('track')) await openTrackDirect(p.get('track'), p.get('source'));
+            else if (p.get('artist')) openArtist(p.get('artist'));
+            else if (p.get('album')) openAlbum(p.get('album'), p.get('source'));
+            else goHome();
+        };
+        async function openTrackDirect(id, s) { try { const r = await fetch(`${API_BASE}/track?id=${id}&source=${s || ''}`); const d = await r.json(); if (d.id) { let i = d.source === 'subsonic' ? `${API_BASE}/get_subsonic_cover/${d.album.image.large}` : (d.album.image.large || '').replace('_300', '_600'); tracks = [{ ...d, img: i, performer: d.performer || { name: d.artist ? d.artist.name : "Artiste" }, type: 'track' }]; renderGrid(tracks, true); loadTrack(0, false); } } catch (e) { } }
+        function showTracks() {
+            hideAllViews();
+            const tv = document.getElementById('trackView');
+            tv.style.display = 'block';
+            tv.classList.remove('is-home');
+            tv.dataset.view = '';
+            document.getElementById('viewActions').innerHTML = '';
+            document.getElementById('searchBarContainer').style.display = 'flex';
+            isLyricsMode = false;
+            document.getElementById('introContainer').style.display = 'none';
+            document.getElementById('viewTitle').innerText = "Résultats";
+            isRadioActive = false;
+            document.getElementById('radioBadge').style.display = 'none';
+        }
+        // Boutons « Tout lire » / « Aléatoire » d'une liste de titres (album, playlist, favoris…)
+        function playList(list, shuffle) {
+            if (!list || !list.length) return;
+            tracks = [...list];
+            isShuffle = !!shuffle;
+            document.getElementById('btnShuffle').classList.toggle('active', isShuffle);
+            loadTrack(shuffle ? Math.floor(Math.random() * tracks.length) : 0);
+        }
+        function renderPlayActions(containerId, list) {
+            const box = document.getElementById(containerId);
+            if (!box) return;
+            if (!list || !list.length) { box.innerHTML = ''; return; }
+            window._actionLists = window._actionLists || {};
+            window._actionLists[containerId] = list;
+            box.innerHTML = `<button class="pill-btn accent" onclick="playList(window._actionLists['${containerId}'], false)"><i class="fas fa-play"></i> Tout lire</button>`
+                + `<button class="pill-btn" onclick="playList(window._actionLists['${containerId}'], true)"><i class="fas fa-shuffle"></i> Aléatoire</button>`;
+        }
+
+        function showFavorites() {
+            resetNavStack();
+            showTracks();
+            setActiveNav('favorites');
+            document.getElementById('trackView').dataset.view = 'favorites';
+            document.getElementById('searchBarContainer').style.display = 'none';
+            renderGrid([...favorites], true, "Vous n'avez pas encore de favoris.<br>Touchez le cœur d'un titre pour le retrouver ici.");
+            document.getElementById('viewTitle').innerHTML = '<i class="fas fa-heart"></i> Mes favoris';
+            renderPlayActions('viewActions', [...favorites]);
+        }
+        function showHistory() {
+            resetNavStack();
+            showTracks();
+            setActiveNav('history');
+            document.getElementById('searchBarContainer').style.display = 'none';
+            renderGrid([...window.userHistory], true, "Votre historique est vide.<br>Vos 50 dernières écoutes apparaîtront ici.");
+            document.getElementById('viewTitle').innerHTML = '<i class="fas fa-clock-rotate-left"></i> Écoutés récemment';
+        }
+        function showPlaylists() {
+            resetNavStack();
+            showTracks();
+            setActiveNav('playlists');
+            document.getElementById('trackView').style.display = 'none';
+            document.getElementById('allPlaylistsView').style.display = 'block';
+            document.getElementById('searchBarContainer').style.display = 'none';
+            renderAllPlaylists();
+        }
+        // toggleLyrics moved up and rewritten
+
+        async function performSearch() {
+            resetNavStack();
+            const q = document.getElementById('searchInput').value;
+            const t = document.getElementById('searchType').value;
+            if (!q) return;
+            safePushState({}, "", `/?q=${encodeURIComponent(q)}`);
+            showTracks();
+            setActiveNav('home', 'search');
+            syncSearchChips();
+            document.getElementById('searchInput').blur();
+            document.getElementById('trackGrid').innerHTML = uiState('loading', `Recherche de « ${escapeHtml(q)} »…`);
+
+            let results = [];
+            if (t === 'all' || t === 'playlist') {
+                const playlists = await searchPublicPlaylists(q);
+                results = results.concat(playlists);
+            }
+            try {
+                const r = await fetch(`${API_BASE}/search?q=${encodeURIComponent(q)}&type=${t}`);
+                const d = await r.json();
+                if (d.albums) d.albums.forEach(a => results.push({ ...a, type: 'album' }));
+                if (d.tracks) d.tracks.forEach(x => results.push({ ...x, type: 'track' }));
+                if (d.external_playlists) d.external_playlists.forEach(p => results.push(p));
+                if (d.artists) d.artists.forEach(a => results.push({ ...a, type: 'artist' }));
+            } catch (e) { console.error(e); }
+
+            // Stockage pour le tri
+            lastSearchResults = results.map(r => ({ ...r, fromSearch: true }));
+
+            // Application du tri actuel avant affichage
+            applySearchSort();
+        }
+
+        // --- NOUVELLE FONCTION DE TRI ---
+        function applySearchSort() {
+            const criteria = document.getElementById('searchSort').value;
+            if (!lastSearchResults || lastSearchResults.length === 0) return;
+
+            let sorted = [...lastSearchResults];
+
+            // Helper pour extraire une valeur de date
+            const getDate = (item) => {
+                if (item.date) return new Date(item.date).getTime();
+                if (item.release_date_original) return new Date(item.release_date_original).getTime();
+                // Si pas de date, on met 0 (très vieux)
+                return 0;
+            };
+
+            const getName = (item) => (item.title || item.name || '').toLowerCase();
+
+            if (criteria === 'date_desc') {
+                // Plus récent d'abord
+                sorted.sort((a, b) => getDate(b) - getDate(a));
+            } else if (criteria === 'date_asc') {
+                // Plus ancien d'abord (on filtre les 0 pour les mettre à la fin quand même)
+                sorted.sort((a, b) => {
+                    const da = getDate(a);
+                    const db = getDate(b);
+                    if (da === 0) return 1;
+                    if (db === 0) return -1;
+                    return da - db;
+                });
+            } else if (criteria === 'alpha_asc') {
+                // A-Z
+                sorted.sort((a, b) => getName(a).localeCompare(getName(b)));
+            }
+            // 'relevance' = pas de tri (on garde l'ordre de l'API)
+
+            renderGrid(sorted, true);
+        }
+
+        function openExternalPlaylist(playlist) {
+            pushNavState();
+            isLyricsMode = false;
+            hideAllViews();
+
+            const view = document.getElementById('playlistView');
+            view.style.display = 'block';
+            view.scrollTop = 0;
+
+            document.getElementById('playlistTitle').innerHTML = `<span>${playlist.name}</span><span class="type-badge badge-playlist">PLAYLIST</span>`;
+            document.getElementById('playlistActions').innerHTML = '';
+            const g = document.getElementById('playlistGrid');
+            g.innerHTML = uiState('loading', 'Chargement de la playlist…');
+
+            // Détection de la source pour choisir la bonne route API
+            let url = '';
+            if (playlist.source === 'deezer') {
+                url = `${API_BASE}/deezer_playlist?id=${playlist.id}`;
+            } else {
+                url = `${API_BASE}/yt_playlist?id=${playlist.id}`;
+            }
+
+            fetch(url)
+                .then(r => r.json())
+                .then(details => {
+                    if (!details.tracks || details.tracks.length === 0) { g.innerHTML = uiState('empty', 'Cette playlist est vide.', 'fa-compact-disc'); return; }
+                    g.innerHTML = '';
+                    // Important : on propage la source pour que loadTrack sache comment résoudre
+                    const playable = details.tracks.map(t => ({
+                        ...t,
+                        img: t.img || t.album.image.large,
+                        type: 'track',
+                        source: playlist.source === 'deezer' ? 'deezer' : 'yt_lazy'
+                    }));
+                    renderPlayActions('playlistActions', playable);
+                    details.tracks.forEach((it) => {
+                        const displayImg = it.img || it.album.image.large || 'https://placehold.co/300x300/17171d/3a3a46?text=%E2%99%AA';
+                        const div = document.createElement('div'); div.className = 'track-card';
+                        div.dataset.id = it.id;
+                        div.dataset.sig = getTrackSignature(it);
+                        div.innerHTML = `<div class="card-media"><img src="${displayImg}" loading="lazy" decoding="async" alt=""><span class="card-play"><i class="fas fa-play"></i></span></div><h3>${it.title}</h3><p>${it.performer.name}</p>`;
+                        div.onclick = () => {
+                            tracks = playable.slice();
+                            const idx = tracks.findIndex(x => x.id === it.id);
+                            loadTrack(idx !== -1 ? idx : 0);
+                        };
+                        g.appendChild(div);
+                    });
+                    updateActiveCard();
+                })
+                .catch(err => { console.error(err); g.innerHTML = uiState('error', 'Impossible de charger cette playlist.'); });
+        }
+
+        function renderGrid(items, enableRadio, emptyMsg = "Aucun résultat.") {
+            currentGridItems = items || [];
+            const g = document.getElementById('trackGrid'); g.innerHTML = '';
+            if (!items || items.length === 0) { g.innerHTML = uiState('empty', emptyMsg); return; }
+
+            items.forEach(it => {
+                const isAlb = it.type === 'album'; const isPl = it.type === 'playlist'; const isArt = it.type === 'artist'; const src = it.source;
+                let mediaElement = '';
+
+                // CORRECTION PRINCIPALE : Gestion spécifique de l'image pour les artistes
+                if (isArt) {
+                    let u = '';
+                    if (typeof it.image === 'string') u = it.image;
+                    else if (it.image && it.image.large) u = it.image.large;
+
+                    if (!u) u = 'https://placehold.co/300x300/17171d/3a3a46?text=Artiste';
+                    mediaElement = `<img src="${u}" loading="lazy" decoding="async" alt="">`;
+                }
+                else if (isPl) {
+                    if (typeof getPlaylistCoverHTML === 'function' && src !== 'ytmusic' && src !== 'deezer') {
+                        mediaElement = getPlaylistCoverHTML(it);
+                    } else {
+                        let imgUrl = it.image || 'https://placehold.co/300x300/17171d/3a3a46?text=Playlist';
+                        mediaElement = `<img src="${imgUrl}" loading="lazy" decoding="async" alt="">`;
+                    }
+                } else {
+                    let u = '';
+                    if (src === 'subsonic') {
+                        // SUBSONIC FIX : Utilisation du placeholder car le serveur est mort
+                        u = 'https://placehold.co/300x300/1a1a1a/666666?text=Musique';
+                    }
+                    else { u = (isAlb ? it.image.large : it.album.image.large) || it.image || ''; u = u.replace('_300', '_600'); }
+                    if (!u) u = 'https://placehold.co/300x300/17171d/3a3a46?text=%E2%99%AA';
+                    mediaElement = `<img src="${u}" loading="lazy" decoding="async" alt="">`;
+                }
+
+                const d = document.createElement('div'); d.className = 'track-card'; if (isArt) d.classList.add('artist-card');
+                d.dataset.id = it.id;
+                if (!isAlb && !isPl && !isArt) d.dataset.sig = getTrackSignature(it);
+                let b = ''; let rankBadgeHTML = '';
+
+                if (src !== 'subsonic' && src !== 'ytmusic' && src !== 'deezer' && it.maximum_bit_depth > 16 && !isPl && !isArt) b += '<div class="type-badge badge-hires">HI-RES</div>';
+
+                if (it.imported_from === 'spotify') {
+                    b += '<div class="type-badge badge-spotify"><i class="fab fa-spotify" style="font-size:14px;"></i> SPOTIFY</div>';
+                }
+
+                if (it.rank) { let rankClass = 'rank-other'; if (it.rank === 1) rankClass = 'rank-1'; else if (it.rank === 2) rankClass = 'rank-2'; else if (it.rank === 3) rankClass = 'rank-3'; rankBadgeHTML = `<div class="rank-badge ${rankClass}">#${it.rank}</div>`; }
+
+                // Le type est indiqué dans le sous-titre (plus lisible qu'un badge sur la pochette)
+                let subtitle = '';
+                if (isPl) { subtitle = 'Playlist · ' + (it.performer ? it.performer.name : 'Zenith'); }
+                else if (isArt) { subtitle = 'Artiste'; }
+                else if (isAlb) { subtitle = 'Album · ' + (it.artist ? it.artist.name : 'Artiste'); }
+                else { subtitle = it.performer ? it.performer.name : 'Artiste'; }
+
+                // Affichage de la date pour le debug ou pour l'utilisateur
+                if (it.date || it.release_date_original) {
+                    const dateStr = it.date || it.release_date_original;
+                    // On affiche juste l'année si possible
+                    const year = dateStr.substring(0, 4);
+                    // subtitle += ` • ${year}`; // Optionnel : Décommenter pour afficher l'année
+                }
+
+                let votesHTML = ''; if (it.like_count) { votesHTML = `<div class="vote-count"><i class="fas fa-heart"></i> ${it.like_count}</div>`; }
+                const playIcon = (isAlb || isPl || isArt) ? 'fa-arrow-right' : 'fa-play';
+                d.innerHTML = `<div class="card-media">${mediaElement}${rankBadgeHTML}<div class="badges-container">${b}</div><span class="card-play"><i class="fas ${playIcon}"></i></span></div><h3>${it.name || it.title}</h3><p>${subtitle}</p>${votesHTML}`;
+                d.onclick = () => {
+                    if (isAlb) openAlbum(it.id, src);
+                    else if (isArt) { openArtistProfile(it.name, it.id, it.source); }
+                    else if (isPl) {
+                        if (src === 'ytmusic' || src === 'deezer') openExternalPlaylist(it);
+                        else openPlaylist(it.id);
+                    } else {
+                        if (currentTrackId === it.id && isPlaying) {
+                            play();
+                            return;
+                        }
+
+                        if (it.fromSearch) {
+                            tracks = [it];
+                            isRadioActive = true;
+                            document.getElementById('radioBadge').style.display = 'block';
+                            loadTrack(0);
+                            // On déclenche la radio après un court délai pour laisser l'interface se caler
+                            setTimeout(() => triggerRadio(true), 500);
+                        } else {
+                            tracks = items;
+                            const idx = tracks.findIndex(x => x.id === it.id);
+                            isRadioActive = enableRadio;
+                            loadTrack(idx !== -1 ? idx : 0);
+                        }
+                    }
+                };
+                g.appendChild(d);
+            });
+            updateActiveCard();
+        }
+        async function openArtist(id) { safePushState({}, "", `/?artist=${id}`); document.getElementById('trackGrid').innerHTML = uiState('loading', 'Chargement…'); try { const r = await fetch(`${API_BASE}/artist?id=${id}`); const d = await r.json(); if (d.albums && d.albums.items) renderGrid(d.albums.items.map(a => ({ ...a, type: 'album', artist: { name: d.name } })), false); } catch (e) { console.error(e); } }
+        async function openAlbum(id, s) {
+            showTracks(); // ADDED: Switch back to main grid view
+            // document.getElementById('searchBarContainer').style.display='none'; // REMOVED: Keep search bar visible
+            pushNavState();
+            safePushState({}, "", `/?album=${id}&source=${s || ''}`);
+            document.getElementById('viewTitle').innerText = 'Album';
+            document.getElementById('trackGrid').innerHTML = uiState('loading', "Chargement de l'album…");
+            try {
+                const r = await fetch(`${API_BASE}/album?id=${id}&source=${s || ''}`);
+                const d = await r.json();
+                if (d.tracks && d.tracks.items) {
+                    const albumTracks = d.tracks.items.map(t => ({ ...t, type: 'track', performer: t.performer || { name: d.artist.name }, album: { image: { large: d.image.large }, title: d.title }, source: d.source || t.source || 'qobuz' }));
+                    renderGrid(albumTracks, false);
+                    if (d.title) document.getElementById('viewTitle').innerText = d.title; // ADDED: Update title
+                    renderPlayActions('viewActions', albumTracks);
+                } else {
+                    document.getElementById('trackGrid').innerHTML = uiState('error', 'Album introuvable.');
+                }
+            } catch (e) { console.error(e); document.getElementById('trackGrid').innerHTML = uiState('error', 'Impossible de charger cet album.'); }
+        }
+
+        function setupMediaSession(t) {
+            if ('mediaSession' in navigator) {
+                let img = 'https://placehold.co/300x300/1a1a1a/666666?text=Music';
+                if (t.source === 'subsonic') {
+                    // Correction double préfixe pour MediaSession
+                    const raw = t.album.image.large;
+                    if (raw && raw.startsWith('http')) {
+                        img = raw;
+                    } else {
+                        img = `${API_BASE}/get_subsonic_cover/${raw}`;
+                    }
+                }
+                else if (t.album && t.album.image) img = t.album.image.large.replace('_300', '_600');
+
+                navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.performer ? t.performer.name : 'Artiste', album: t.album ? t.album.title : '', artwork: [{ src: img, sizes: '512x512', type: 'image/jpeg' }] });
+                navigator.mediaSession.setActionHandler('play', play); navigator.mediaSession.setActionHandler('pause', pause); navigator.mediaSession.setActionHandler('previoustrack', () => { if (currentIndex > 0) loadTrack(currentIndex - 1); else activeAudio.currentTime = 0; }); navigator.mediaSession.setActionHandler('nexttrack', handleNext); navigator.mediaSession.setActionHandler('seekto', (d) => { if (d.seekTime) { activeAudio.currentTime = d.seekTime; updateMediaSessionState(); if (typeof broadcastSeek === 'function') broadcastSeek(); } });
+            }
+        }
+        function updateMediaSessionState() { if (!('mediaSession' in navigator)) return; let d = activeAudio.duration; const t = tracks[currentIndex]; if ((!d || !isFinite(d)) && t && t.duration) { d = t.duration; } if (d && isFinite(d) && activeAudio.currentTime <= d) { try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: activeAudio.playbackRate, position: activeAudio.currentTime }); } catch (e) { console.warn("MediaSession Error:", e); } } }
+
+        // ─── MEMORIES REEL ───────────────────────────────────────────────────────
+        let _reelMemories = [], _reelIdx = 0, _reelTimer = null;
+        const _REEL_TYPES = ['stories', 'polaroid', 'cinema', 'vhs', 'super8'];
+
+        function _assignReelTypes(arr) {
+            const seq = [..._REEL_TYPES].sort(() => Math.random() - 0.5);
+            return arr.map((m, i) => ({ ...m, _reelType: seq[i % seq.length] }));
+        }
+
+        function _getTimeLabel(dateStr) {
+            const d = new Date(dateStr), now = new Date();
+            const days = Math.floor((now - d) / 86400000);
+            if (days < 1) return "AUJOURD'HUI";
+            if (days < 7) return days === 1 ? 'IL Y A 1 JOUR' : `IL Y A ${days} JOURS`;
+            const months = Math.round(days / 30.4);
+            if (months < 12) return months <= 1 ? 'IL Y A 1 MOIS' : `IL Y A ${months} MOIS`;
+            const years = Math.round(months / 12);
+            return years <= 1 ? 'IL Y A 1 AN' : `IL Y A ${years} ANS`;
+        }
+
+        async function openMemoriesReel() {
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (!user) return;
+
+            const now = new Date();
+            const anchor = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+            const from = new Date(anchor); from.setDate(from.getDate() - 45);
+            const to = new Date(anchor); to.setDate(to.getDate() + 45);
+
+            const { data, error } = await supabaseClient
+                .from('memories').select('*').eq('user_id', user.id)
+                .gte('created_at', from.toISOString())
+                .lte('created_at', to.toISOString())
+                .order('created_at', { ascending: true });
+
+            if (error || !data?.length) {
+                showToast("Aucun souvenir d'il y a 1 an 🕰️");
+                return;
+            }
+
+            _openReelWith(_assignReelTypes(data));
+        }
+
+        async function openMemoriesReelTest() {
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (!user) return;
+
+            const { data, error } = await supabaseClient
+                .from('memories').select('*').eq('user_id', user.id)
+                .order('created_at', { ascending: false });
+
+            if (error || !data?.length) {
+                showToast("Aucun souvenir pour le test 🕰️");
+                return;
+            }
+
+            _openReelWith(_assignReelTypes([...data].sort(() => Math.random() - 0.5)));
+        }
+
+        function _openReelWith(arr) {
+            _reelMemories = arr;
+            _reelIdx = 0;
+            document.getElementById('memoriesReelOverlay').style.display = 'flex';
+            _showReelSlide(0);
+        }
+
+        function _showReelSlide(idx) {
+            _reelIdx = idx;
+            const m = _reelMemories[idx];
+            const t = m.track_data || {};
+            const albumImg = (t.album?.image?.large || '').replace('_300','_600') || 'https://placehold.co/600x600/111/333?text=Z';
+            const mainImg = m.photo_url || albumImg;
+            const type = m._reelType || 'stories';
+
+            const artistName = t.performer?.name || t.artist?.name || (Array.isArray(t.artists) ? t.artists[0]?.name : '') || t.artist || '';
+
+            // Apply type class
+            const overlay = document.getElementById('memoriesReelOverlay');
+            _REEL_TYPES.forEach(tp => overlay.classList.remove(`reel-type-${tp}`));
+            overlay.classList.add(`reel-type-${type}`);
+
+            // Background blur (always album art for depth)
+            const bg = document.getElementById('reelBg');
+            bg.style.opacity = '0';
+            setTimeout(() => { bg.style.backgroundImage = `url('${albumImg}')`; bg.style.opacity = '1'; }, 120);
+
+            // Entrance animation
+            const content = document.getElementById('reelContent');
+            content.classList.remove('reel-slide-in');
+            void content.offsetWidth;
+            content.classList.add('reel-slide-in');
+
+            // Main image (photo takes priority over album art)
+            document.getElementById('reelMainImg').src = mainImg;
+
+            // Dates
+            const d = new Date(m.created_at);
+            const dateLong = d.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+            const dateShort = d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+            // Top bar: dynamic time label + slide counter
+            document.querySelector('#memoriesReelOverlay .reel-year-badge').textContent =
+                `${_getTimeLabel(m.created_at)}  ${idx + 1}/${_reelMemories.length}`;
+            document.getElementById('reelDate').textContent = dateLong;
+
+            // Note overlay — fixed: properly scoped per type
+            const noteEl = document.getElementById('reelNoteOverlay');
+            if (type === 'cinema') {
+                noteEl.textContent = ''; noteEl.style.display = 'none';
+            } else if (type === 'polaroid') {
+                // Flows inside white frame via position:static (CSS)
+                noteEl.textContent = m.note || '';
+                noteEl.style.display = m.note ? 'block' : 'none';
+            } else {
+                // stories / vhs / super8: translucent overlay at bottom of photo
+                noteEl.textContent = m.note ? `« ${m.note} »` : '';
+                noteEl.style.display = m.note ? 'block' : 'none';
+            }
+
+            // Polaroid caption: date only (note is already inside the frame)
+            document.getElementById('reelPolaroidCaption').textContent = type === 'polaroid' ? dateShort : '';
+
+            // Cinema credits
+            document.getElementById('reelCinemaTitle').textContent = t.title || '';
+            document.getElementById('reelCinemaArtist').textContent = artistName;
+
+            // VHS / super8 timestamp
+            document.getElementById('reelVhsTs').textContent =
+                dateShort + '  ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
+
+            // Location
+            const locEl = document.getElementById('reelLocation');
+            if (m.location_name) {
+                locEl.innerHTML = `<i class="fas fa-map-marker-alt"></i> ${escapeHtml(m.location_name)}`;
+                locEl.style.display = 'flex';
+            } else { locEl.style.display = 'none'; }
+
+            // Music pill
+            document.getElementById('reelArt').src = albumImg;
+            document.getElementById('reelTitle').textContent = t.title || '';
+            document.getElementById('reelArtist').textContent = artistName;
+
+            _buildReelProgress();
+
+            // Play track + seek 45–70% into the song
+            if (t.id) {
+                tracks = [{ ...t }]; currentIndex = 0; loadTrack(0, true);
+                const seekFrac = 0.45 + Math.random() * 0.25;
+                const trySeek = (n = 0) => {
+                    if (activeAudio?.duration && isFinite(activeAudio.duration) && activeAudio.duration > 0) {
+                        activeAudio.currentTime = activeAudio.duration * seekFrac;
+                    } else if (n < 25) { setTimeout(() => trySeek(n + 1), 400); }
+                };
+                setTimeout(() => trySeek(), 600);
+            }
+
+            clearTimeout(_reelTimer);
+            _reelTimer = setTimeout(nextReelSlide, 18000);
+        }
+
+        function _buildReelProgress() {
+            const track = document.getElementById('reelProgress');
+            track.innerHTML = '';
+            _reelMemories.forEach((_, i) => {
+                const bar = document.createElement('div');
+                bar.className = 'reel-bar';
+                const fill = document.createElement('div');
+                fill.className = 'reel-bar-fill' + (i < _reelIdx ? ' done' : '') + (i === _reelIdx ? ' active' : '');
+                bar.appendChild(fill);
+                track.appendChild(bar);
+            });
+        }
+
+        function nextReelSlide() {
+            clearTimeout(_reelTimer);
+            if (_reelIdx < _reelMemories.length - 1) _showReelSlide(_reelIdx + 1);
+            else closeMemoriesReel();
+        }
+
+        function prevReelSlide() {
+            clearTimeout(_reelTimer);
+            if (_reelIdx > 0) _showReelSlide(_reelIdx - 1);
+        }
+
+        function closeMemoriesReel() {
+            clearTimeout(_reelTimer);
+            document.getElementById('memoriesReelOverlay').style.display = 'none';
+        }
+
+        // Touch swipe + keyboard — registered once on load
+        (function() {
+            const ov = document.getElementById('memoriesReelOverlay');
+            let tx = null;
+            ov.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
+            ov.addEventListener('touchend', e => {
+                if (tx === null) return;
+                const dx = e.changedTouches[0].clientX - tx; tx = null;
+                if (Math.abs(dx) < 50) return;
+                dx < 0 ? nextReelSlide() : prevReelSlide();
+            }, { passive: true });
+            document.addEventListener('keydown', e => {
+                if (document.getElementById('memoriesReelOverlay').style.display === 'none') return;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextReelSlide();
+                else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') prevReelSlide();
+                else if (e.key === 'Escape') closeMemoriesReel();
+            });
+        })();
+        // ─────────────────────────────────────────────────────────────────────────
+
+        // ─── SOUVENIRS ────────────────────────────────────────────────────────────
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        let _memoryLat = null, _memoryLng = null, _memoryLocationName = null;
+
+        function openMemoryModal() {
+            const track = tracks[currentIndex];
+            if (!track) { showToast('Aucune musique en cours'); return; }
+
+            const img = (track.album?.image?.large || '').replace('_300', '_600') || 'https://placehold.co/60x60/1a1a1a/444?text=Z';
+            document.getElementById('memoryTrackArt').src = img;
+            document.getElementById('memoryTrackTitle').textContent = track.title;
+            document.getElementById('memoryTrackArtist').textContent = track.performer?.name || '';
+            document.getElementById('memoryNoteInput').value = '';
+            document.getElementById('memoryPhotoPreview').style.display = 'none';
+            document.getElementById('memoryPhotoInput').value = '';
+            document.getElementById('memoryPhotoLabel').textContent = 'Ajouter une photo (optionnel)';
+            document.getElementById('btnSaveMemory').disabled = false;
+            document.getElementById('btnSaveMemory').innerHTML = '<i class="fas fa-thumbtack"></i> Épingler';
+
+            _memoryLat = null; _memoryLng = null; _memoryLocationName = null;
+            document.getElementById('memoryLocationText').textContent = 'Récupération de la position...';
+            document.getElementById('memoryModal').style.display = 'flex';
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(async (pos) => {
+                    _memoryLat = pos.coords.latitude;
+                    _memoryLng = pos.coords.longitude;
+                    try {
+                        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${_memoryLat}&lon=${_memoryLng}&format=json`, { headers: { 'Accept-Language': 'fr' } });
+                        const geo = await r.json();
+                        const city = geo.address?.city || geo.address?.town || geo.address?.village || geo.address?.county || '';
+                        const country = geo.address?.country || '';
+                        _memoryLocationName = [city, country].filter(Boolean).join(', ') || null;
+                        document.getElementById('memoryLocationText').textContent = _memoryLocationName || `${_memoryLat.toFixed(3)}, ${_memoryLng.toFixed(3)}`;
+                    } catch {
+                        _memoryLocationName = `${_memoryLat.toFixed(3)}, ${_memoryLng.toFixed(3)}`;
+                        document.getElementById('memoryLocationText').textContent = _memoryLocationName;
+                    }
+                }, () => {
+                    document.getElementById('memoryLocationText').textContent = 'Position non partagée';
+                });
+            } else {
+                document.getElementById('memoryLocationText').textContent = 'Géolocalisation non supportée';
+            }
+        }
+
+        function closeMemoryModal() {
+            document.getElementById('memoryModal').style.display = 'none';
+        }
+
+        function previewMemoryPhoto(input) {
+            if (!input.files?.[0]) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const p = document.getElementById('memoryPhotoPreview');
+                p.src = e.target.result;
+                p.style.display = 'block';
+            };
+            document.getElementById('memoryPhotoLabel').textContent = input.files[0].name;
+            reader.readAsDataURL(input.files[0]);
+        }
+
+        async function saveMemory() {
+            const track = tracks[currentIndex];
+            if (!track) return;
+            const { data: { user } } = await supabaseClient.auth.getUser();
+            if (!user) return showToast('Non connecté');
+
+            const btn = document.getElementById('btnSaveMemory');
+            btn.disabled = true;
+            btn.innerHTML = '...';
+
+            let photoUrl = null;
+            const photoFile = document.getElementById('memoryPhotoInput').files[0];
+            if (photoFile) {
+                try {
+                    const b64 = await new Promise((res, rej) => {
+                        const r = new FileReader();
+                        r.onload = () => res(r.result.split(',')[1]);
+                        r.onerror = rej;
+                        r.readAsDataURL(photoFile);
+                    });
+                    const fd = new FormData();
+                    fd.append('image', b64);
+                    fd.append('name', photoFile.name || 'memory');
+                    const upRes = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_KEY}`, { method: 'POST', body: fd });
+                    const upJson = await upRes.json();
+                    if (upJson?.data?.url) photoUrl = upJson.data.url;
+                } catch { showToast("Photo non uploadée — vérifiez la connexion"); }
+            }
+
+            const note = document.getElementById('memoryNoteInput').value.trim();
+            const trackSnap = { id: track.id, title: track.title, performer: track.performer, album: track.album, source: track.source, duration: track.duration };
+
+            const { error } = await supabaseClient.from('memories').insert({
+                user_id: user.id,
+                track_id: String(track.id),
+                track_data: trackSnap,
+                note: note || null,
+                photo_url: photoUrl,
+                lat: _memoryLat,
+                lng: _memoryLng,
+                location_name: _memoryLocationName
+            });
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-thumbtack"></i> Épingler';
+
+            if (error) { showToast('Erreur — crée la table memories dans Supabase'); console.error(error); }
+            else { closeMemoryModal(); showToast('📍 Souvenir épinglé !'); }
+        }
+
+        function showMemories() {
+            resetNavStack();
+            isLyricsMode = false;
+            hideAllViews();
+            setActiveNav('memories');
+            document.getElementById('memoriesView').style.display = 'block';
+            loadMemories();
+        }
+
+        async function loadMemories() {
+            const feed = document.getElementById('memoriesFeed');
+            feed.innerHTML = uiState('loading', 'Chargement de vos souvenirs…');
+            try {
+                const { data: { user } } = await supabaseClient.auth.getUser();
+                if (!user) return;
+                const { data, error } = await supabaseClient.from('memories').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+                if (error) throw error;
+                if (!data?.length) {
+                    feed.innerHTML = uiState('empty', "Aucun souvenir pour l'instant.<br>Pendant l'écoute, touchez <i class=\"fas fa-thumbtack\"></i> pour épingler un moment à une musique.", 'fa-bookmark');
+                    return;
+                }
+                renderMemoryCards(data, feed);
+            } catch (e) { console.error(e); feed.innerHTML = uiState('error', 'Impossible de charger vos souvenirs.'); }
+        }
+
+        function renderMemoryCards(memories, feed) {
+            feed.innerHTML = '';
+            memories.forEach(m => {
+                const t = m.track_data || {};
+                const img = t.album?.image?.large || 'https://placehold.co/64x64/111/444?text=Z';
+                const d = new Date(m.created_at);
+                const dateStr = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+                const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+                const card = document.createElement('div');
+                card.className = 'memory-card';
+                card.innerHTML = `
+                    <img src="${escapeHtml(img)}" class="memory-card-art" alt="" onerror="this.src='https://placehold.co/64x64/17171d/3a3a46?text=Z'">
+                    <div class="memory-card-body">
+                        <div class="memory-card-title">${escapeHtml(t.title || 'Titre inconnu')}</div>
+                        <div class="memory-card-artist">${escapeHtml(t.performer?.name || '')}</div>
+                        ${m.note ? `<div class="memory-card-note">${escapeHtml(m.note)}</div>` : ''}
+                        ${m.photo_url ? `<img src="${escapeHtml(m.photo_url)}" class="memory-card-photo" alt="">` : ''}
+                        <div class="memory-card-meta">
+                            <span class="memory-date-badge"><i class="far fa-calendar"></i> ${escapeHtml(dateStr)} · ${escapeHtml(timeStr)}</span>
+                            ${m.location_name ? `<span><i class="fas fa-map-marker-alt" style="color:var(--secondary);"></i> ${escapeHtml(m.location_name)}</span>` : ''}
+                        </div>
+                    </div>
+                    <button class="memory-delete-btn" title="Supprimer ce souvenir"><i class="fas fa-trash"></i></button>`;
+
+                card.querySelector('.memory-delete-btn').onclick = (e) => {
+                    e.stopPropagation();
+                    deleteMemory(m.id, card);
+                };
+                card.onclick = (e) => {
+                    if (e.target.classList.contains('memory-card-photo')) { window.open(m.photo_url, '_blank'); return; }
+                    if (t.id) { tracks = [t]; currentIndex = 0; loadTrack(0, true); showToast(`▶ ${t.title}`); }
+                };
+                feed.appendChild(card);
+            });
+        }
+
+        async function deleteMemory(id, cardEl) {
+            if (!confirm('Supprimer ce souvenir définitivement ?')) return;
+            const { error } = await supabaseClient.from('memories').delete().eq('id', id);
+            if (error) { showToast('Erreur lors de la suppression'); return; }
+            cardEl.style.transition = 'opacity 0.3s, transform 0.3s';
+            cardEl.style.opacity = '0';
+            cardEl.style.transform = 'translateX(40px)';
+            setTimeout(() => cardEl.remove(), 300);
+            showToast('Souvenir supprimé');
+        }
+
+        // ─── CARTE DES SOUVENIRS ───────────────────────────────────────────────────
+        let _memMap = null, _memCluster = null, _memMapMarkers = [], _memMapTimer = null;
+
+        async function openMemoriesMap() {
+            const overlay = document.getElementById('memoriesMapOverlay');
+            const statusEl = document.getElementById('memMapStatus');
+            const emptyEl = document.getElementById('memMapEmpty');
+            overlay.style.display = 'block';
+            emptyEl.style.display = 'none';
+            statusEl.textContent = 'Chargement…';
+
+            // 1. Récupérer les souvenirs géolocalisés (ordre chronologique)
+            let mems = [];
+            try {
+                const { data: { user } } = await supabaseClient.auth.getUser();
+                if (user) {
+                    const { data } = await supabaseClient.from('memories').select('*')
+                        .eq('user_id', user.id).order('created_at', { ascending: true });
+                    mems = (data || []).filter(m => typeof m.lat === 'number' && typeof m.lng === 'number');
+                }
+            } catch (e) { console.error('Map memories error', e); }
+
+            // 2. Initialiser la carte (une seule fois) avec des tuiles sombres
+            if (!_memMap) {
+                _memMap = L.map('memMapCanvas', { zoomControl: false, attributionControl: false }).setView([20, 0], 2);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    subdomains: 'abcd', maxZoom: 19
+                }).addTo(_memMap);
+                L.control.zoom({ position: 'bottomright' }).addTo(_memMap);
+                // Regroupement : les souvenirs au même endroit forment une pastille
+                // (compteur) qui s'écarte en éventail au clic (spiderfy).
+                _memCluster = L.markerClusterGroup({
+                    showCoverageOnHover: false,
+                    spiderfyOnMaxZoom: true,
+                    maxClusterRadius: 45,
+                    spiderfyDistanceMultiplier: 1.6,
+                    spiderLegPolylineOptions: { weight: 1.5, color: '#00d2ff', opacity: 0.45 },
+                    iconCreateFunction: (cluster) => L.divIcon({
+                        className: 'mem-cluster',
+                        html: `<div class="mem-cluster-inner">${cluster.getChildCount()}</div>`,
+                        iconSize: [42, 42]
+                    })
+                });
+                _memMap.addLayer(_memCluster);
+            }
+            setTimeout(() => _memMap.invalidateSize(), 120);
+
+            // 3. Nettoyer les marqueurs précédents
+            if (_memMapTimer) { clearTimeout(_memMapTimer); _memMapTimer = null; }
+            _memCluster.clearLayers();
+            _memMapMarkers = [];
+
+            if (mems.length === 0) {
+                statusEl.textContent = '';
+                emptyEl.style.display = 'flex';
+                _memMap.setView([20, 0], 2);
+                return;
+            }
+
+            // 4. Cadrer la carte sur l'ensemble des souvenirs
+            const latlngs = mems.map(m => [m.lat, m.lng]);
+            setTimeout(() => _memMap.fitBounds(latlngs, { padding: [70, 70], maxZoom: 6 }), 160);
+
+            // 5. Révéler les marqueurs un par un, de plus en plus vite
+            let i = 0;
+            let interval = 900; // ms, accéléré à chaque étape
+            const reveal = () => {
+                if (i >= mems.length) {
+                    statusEl.textContent = `${mems.length} souvenir${mems.length > 1 ? 's' : ''}`;
+                    return;
+                }
+                const m = mems[i];
+                const t = m.track_data || {};
+                const ph = 'https://placehold.co/120x120/111/444?text=%E2%99%AA';
+                const cover = ((t.album && t.album.image && t.album.image.large) || t.img || ph).replace('_300', '_600');
+                const photo = m.photo_url || '';
+                const markerImg = photo || cover;  // vignette = photo si dispo, sinon pochette
+                const d = new Date(m.created_at);
+                const dateStr = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                const icon = L.divIcon({
+                    className: 'mem-marker' + (photo ? ' has-photo' : ''),
+                    html: `<div class="mem-marker-inner"><img src="${escapeHtml(markerImg)}" onerror="this.src='${ph}'"></div>${photo ? '<span class="mem-marker-cam"><i class="fas fa-camera"></i></span>' : ''}`,
+                    iconSize: [46, 46], iconAnchor: [23, 23], popupAnchor: [0, -26]
+                });
+                const mk = L.marker([m.lat, m.lng], { icon });
+                _memCluster.addLayer(mk);
+
+                // Bloc musique : grand si pas de photo, compact (vignette + texte) si photo
+                const musicBlock = photo
+                    ? `<div class="mem-popup-music">
+                            <img class="mem-popup-cover-sm" src="${escapeHtml(cover)}" onerror="this.src='${ph}'">
+                            <div class="mem-popup-music-meta">
+                                <div class="mem-popup-title">${escapeHtml(t.title || 'Titre inconnu')}</div>
+                                <div class="mem-popup-artist">${escapeHtml((t.performer && t.performer.name) || '')}</div>
+                            </div>
+                       </div>`
+                    : `<img class="mem-popup-art" src="${escapeHtml(cover)}" onerror="this.src='${ph}'">
+                       <div class="mem-popup-title">${escapeHtml(t.title || 'Titre inconnu')}</div>
+                       <div class="mem-popup-artist">${escapeHtml((t.performer && t.performer.name) || '')}</div>`;
+
+                mk.bindPopup(
+                    `<div class="mem-popup">
+                        ${photo ? `<img class="mem-popup-photo" src="${escapeHtml(photo)}" onclick="window.open('${escapeHtml(photo)}','_blank')" onerror="this.style.display='none'" title="Voir la photo en grand">` : ''}
+                        ${musicBlock}
+                        ${m.note ? `<div class="mem-popup-note">« ${escapeHtml(m.note)} »</div>` : ''}
+                        ${m.location_name ? `<div class="mem-popup-loc"><i class="fas fa-map-marker-alt"></i> ${escapeHtml(m.location_name)}</div>` : ''}
+                        <div class="mem-popup-date">${escapeHtml(dateStr)}</div>
+                        <button class="mem-popup-play" onclick="playMemoryTrack(${i})"><i class="fas fa-play"></i> Écouter</button>
+                    </div>`,
+                    { className: 'mem-popup-wrap', maxWidth: 250 }
+                );
+                _memMapMarkers.push(mk);
+                _memMapMarkers._mems = mems;
+
+                statusEl.textContent = `${i + 1} / ${mems.length}`;
+                i++;
+                interval = Math.max(85, interval * 0.82); // accélération
+                _memMapTimer = setTimeout(reveal, interval);
+            };
+            reveal();
+        }
+
+        function playMemoryTrack(index) {
+            const mems = _memMapMarkers._mems || [];
+            const m = mems[index];
+            if (!m || !m.track_data || !m.track_data.id) return;
+            tracks = [m.track_data];
+            currentIndex = 0;
+            loadTrack(0, true);
+            showToast(`▶ ${m.track_data.title}`);
+        }
+
+        function closeMemoriesMap() {
+            if (_memMapTimer) { clearTimeout(_memMapTimer); _memMapTimer = null; }
+            document.getElementById('memoriesMapOverlay').style.display = 'none';
+        }
+        // ──────────────────────────────────────────────────────────────────────────
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('btnSearch').addEventListener('click', performSearch);
+            document.getElementById('searchInput').addEventListener('keypress', (e) => { if (e.key === 'Enter') performSearch(); });
+            document.getElementById('btnPlay').addEventListener('click', () => isPlaying ? pause() : play());
+            document.getElementById('btnNext').addEventListener('click', handleNext);
+            document.getElementById('btnPrev').addEventListener('click', () => { if (currentIndex > 0) loadTrack(currentIndex - 1); else activeAudio.currentTime = 0; });
+            document.getElementById('btnShuffle').addEventListener('click', toggleShuffle); // Listener ajouté
+            document.getElementById('progressBar').addEventListener('click', (e) => { if (!activeAudio.duration) return; activeAudio.currentTime = (e.offsetX / document.getElementById('progressBar').clientWidth) * activeAudio.duration; updateMediaSessionState(); if (typeof broadcastSeek === 'function') broadcastSeek(); });
+            document.querySelector('.vol-slider').oninput = function () { setGlobalVolume(this.value) };
+
+            // Navigation mobile : un choix dans la feuille « Plus » la referme
+            document.getElementById('sidebar').addEventListener('click', (e) => { if (e.target.closest('.nav-item')) closeMoreSheet(); });
+            // Mini-lecteur (tablette / mobile) : toucher la pochette ou le titre ouvre la lecture plein écran.
+            // En phase de capture pour passer avant le lien vers l'artiste.
+            document.querySelector('.cap-info').addEventListener('click', (e) => {
+                if (!isCompactLayout() || document.body.classList.contains('np-open')) return;
+                if (e.target.closest('button')) return;
+                if (e.target.closest('.cap-img, .cap-text')) { e.stopPropagation(); openNowPlaying(); }
+            }, true);
+            window.addEventListener('resize', () => { if (!isCompactLayout()) document.body.classList.remove('np-open'); });
+            document.addEventListener('keydown', (e) => {
+                if (e.key !== 'Escape') return;
+                if (document.getElementById('sidebar').classList.contains('sheet-open')) closeMoreSheet();
+                else if (document.body.classList.contains('np-open')) closeNowPlaying();
+                else if (document.getElementById('eqView').style.display === 'flex') toggleEQ();
+            });
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                console.log("Background mode: UI paused");
+                if (typeof stopEffects === 'function') stopEffects();
+                const orb = document.getElementById('orbitVisual');
+                if (orb) orb.style.animation = 'none';
+            } else {
+                console.log("Foreground mode");
+                const t = tracks[currentIndex];
+                if (t && magicEnabled && typeof checkMagic === 'function') checkMagic(t.title, t.performer ? t.performer.name : t.artist);
+                syncLyricsUI();
+            }
+        });
+
+        function toggleQueue() {
+            const p = document.getElementById('queuePanel');
+            const rp = document.getElementById('rightPanel');
+
+            const isOpening = !p.classList.contains('active');
+
+            if (!isOpening) {
+                // CLOSE
+                p.classList.remove('active');
+                if (rp) {
+                    rp.classList.remove('queue-open');
+                    rp.classList.remove('mobile-active');
+                }
+            } else {
+                // OPEN
+                // 1. Activate UI first (so render calculations work)
+                p.classList.add('active');
+                if (rp) {
+                    rp.classList.add('queue-open');
+
+                    // Improved detection: Check width OR if rightPanel is hidden by CSS
+                    const isHidden = window.getComputedStyle(rp).display === 'none';
+                    if (window.innerWidth <= 1024 || isHidden) {
+                        rp.classList.add('mobile-active');
+                    }
+                }
+                // 2. Render content
+                setTimeout(renderQueueList, 10);
+            }
+        }
+    </script>
+    <script src="shortcuts.js"></script>
+</body>
+
+</html>
