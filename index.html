@@ -2066,7 +2066,7 @@
         }
 
         async function openArtistProfile(name, id = null, source = null) {
-            const passId = id && (source === 'deezer' || source === 'tidal_hund');
+            const passId = id && ['qobuz', 'tidal_hund', 'deezer'].includes(source);
             let query = `/?artist_profile=${encodeURIComponent(name)}`;
             if (passId) query += `&id=${id}&source=${source}`;
             safePushState({}, "", query);
@@ -2186,7 +2186,7 @@
                             <div class="track-row-time">${fmtTime(t.duration)}</div>
                         `;
                         div.onclick = () => {
-                            tracks = data.top_tracks.map(x => ({ id: x.id, title: x.title, performer: { name: x.performer ? x.performer.name : data.name }, album: x.album, source: x.source, maximum_bit_depth: x.maximum_bit_depth, duration: x.duration }));
+                            tracks = data.top_tracks.map(x => ({ id: x.id, title: x.title, performer: { name: x.performer ? x.performer.name : data.name }, album: x.album, source: x.source, maximum_bit_depth: x.maximum_bit_depth, maximum_sampling_rate: x.maximum_sampling_rate, isrc: x.isrc, duration: x.duration }));
                             const idx = tracks.findIndex(tr => tr.id === t.id);
                             loadTrack(idx !== -1 ? idx : 0);
                         };

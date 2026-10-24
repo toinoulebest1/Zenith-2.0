@@ -1843,17 +1843,104 @@ def _album_sig(a):
     return f"{_match_str(a.get('title'))}|{_match_str((a.get('artist') or {}).get('name'))}"
 
 def _merge_lossless(qobuz_items, tidal_items, sig):
-    """Fusionne Qobuz + Tidal sans doublon : la meilleure profondeur de bits l'emporte, Qobuz à
-    égalité (qualité exacte et lecture directe). L'ordre de pertinence est conservé."""
+    """Fusionne sans doublon, Qobuz en priorité : Tidal ne fait que compléter avec ce que Qobuz
+    n'a pas. Entre deux versions d'une même source, la meilleure profondeur de bits l'emporte.
+    L'ordre de pertinence est conservé (Qobuz d'abord)."""
     best, order = {}, []
     for it in list(qobuz_items) + list(tidal_items):
         s_ = sig(it)
         cur = best.get(s_)
         if cur is None:
             best[s_] = it; order.append(s_)
-        elif (it.get('maximum_bit_depth') or 16) > (cur.get('maximum_bit_depth') or 16):
+        elif cur.get('source') == it.get('source') and (it.get('maximum_bit_depth') or 16) > (cur.get('maximum_bit_depth') or 16):
             best[s_] = it
     return [best[k] for k in order]
+
+def _qobuz_track_from_page(t):
+    """Titre de la fiche artiste Qobuz (artist/page) → objet titre du site."""
+    alb = t.get('album') or {}
+    title = t.get('title') or ''
+    if t.get('version') and t['version'].lower() not in title.lower():
+        title = f"{title} ({t['version']})"
+    ai = t.get('audio_info') or {}
+    return {
+        'id': str(t['id']), 'title': title,
+        'performer': {'name': ((t.get('artist') or {}).get('name') or {}).get('display') or 'Inconnu'},
+        'album': {'title': alb.get('title'), 'image': {'large': (alb.get('image') or {}).get('large')}},
+        'duration': t.get('duration', 0), 'isrc': t.get('isrc'),
+        'maximum_bit_depth': ai.get('maximum_bit_depth') or 16,
+        'maximum_sampling_rate': ai.get('maximum_sampling_rate') or 44.1,
+        'source': 'qobuz',
+    }
+
+def _qobuz_find_artist_id(name):
+    """ID Qobuz de l'artiste portant ce nom (correspondance quasi exacte), ou None."""
+    if not (QOBUZ_ENABLED and client and name):
+        return None
+    try:
+        items = (client.api_call("artist/search", query=name, limit=10).get('artists') or {}).get('items') or []
+    except Exception as e:
+        logger.warning(f"[Qobuz Artist search] {e}")
+        return None
+    wanted = _artist_forms(name)
+    for a in items:
+        if a.get('id') and max(_ratio(w, _match_str(a.get('name'))) for w in wanted) >= 90:
+            return str(a['id'])
+    return None
+
+def sync_get_qobuz_artist(artist_id):
+    """Fiche artiste Qobuz (artist/page) : portrait, bio, titres populaires et discographie."""
+    if not (QOBUZ_ENABLED and client):
+        return None
+    try:
+        d = client.api_call("artist/page", artist_id=artist_id)
+    except Exception as e:
+        logger.warning(f"[Qobuz Artist] {artist_id}: {e}")
+        return None
+    name = ((d.get('name') or {}).get('display') if isinstance(d.get('name'), dict) else d.get('name')) or ''
+    if not name:
+        return None
+    portrait = ((d.get('images') or {}).get('portrait') or {}).get('hash')
+    image = f"https://static.qobuz.com/images/artists/covers/large/{portrait}.jpg" if portrait else ''
+
+    top, seen = [], set()
+    for t in d.get('top_tracks') or []:
+        if not t.get('id'):
+            continue
+        obj = _qobuz_track_from_page(t)
+        sig = _track_sig(obj)
+        if sig in seen:
+            continue
+        seen.add(sig); top.append(obj)
+        if len(top) >= 10:
+            break
+
+    # Discographie : albums, puis EP/singles, live et compilations (récents d'abord dans chaque groupe)
+    groups = {r.get('type'): r.get('items') or [] for r in d.get('releases') or [] if isinstance(r, dict)}
+    albums, seen = [], set()
+    for kind in ('album', 'epSingle', 'live', 'compilation'):
+        for a in sorted(groups.get(kind, []), key=lambda x: (x.get('dates') or {}).get('original') or '', reverse=True):
+            if not a.get('id') or a['id'] in seen:
+                continue
+            seen.add(a['id'])
+            title = a.get('title') or ''
+            if a.get('version') and a['version'].lower() not in title.lower():
+                title = f"{title} ({a['version']})"
+            albums.append({
+                'id': str(a['id']), 'title': title,
+                'artist': {'name': name},
+                'image': {'large': (a.get('image') or {}).get('large')},
+                'release_date_original': (a.get('dates') or {}).get('original'),
+                'maximum_bit_depth': (a.get('audio_info') or {}).get('maximum_bit_depth') or 16,
+                'source': 'qobuz', 'type': 'album',
+            })
+
+    return {
+        'id': str(d.get('id') or artist_id), 'name': name, 'image': image,
+        'albums': albums, 'top_tracks': top,
+        'bio': ((d.get('biography') or {}).get('content') or '').strip(),
+        'source': 'qobuz',
+    }
 
 def sync_qobuz_search_both(query, limit_tracks=50, limit_albums=15):
     """UN SEUL appel Qobuz pour les titres ET les albums (l'API catalog/search renvoie
@@ -2379,7 +2466,7 @@ async def _do_search(q: str, type: str = 'all'):
         artists = []
         if want_ar:
             seen = set()
-            for a in res['artists'] + qz_artists:  # Tidal d'abord (fiches artiste plus complètes)
+            for a in qz_artists + res['artists']:  # Qobuz d'abord, Tidal complète
                 k = _match_str(a['name'])
                 if k not in seen:
                     seen.add(k); artists.append(a)
@@ -2520,6 +2607,11 @@ async def _do_search(q: str, type: str = 'all'):
 
 @app.get('/artist_bio')
 async def get_artist_bio_route(name: str, id: str = None, source: str = None):
+    # Qobuz d'abord (par ID si connu, sinon par nom), Tidal en secours, Deezer en dernier recours
+    qobuz_id = id if (source == 'qobuz' and id) else await run_in_threadpool(_qobuz_find_artist_id, name)
+    if qobuz_id:
+        data = await run_in_threadpool(sync_get_qobuz_artist, qobuz_id)
+        if data: return JSONResponse(data)
     tidal_id = id if (source == 'tidal_hund' and id) else await run_in_threadpool(_tidal_find_artist_id, name)
     if tidal_id:
         data = await run_in_threadpool(sync_get_tidal_artist, tidal_id)
