@@ -12,6 +12,13 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 PROJECT_ROOT = os.path.abspath(os.path.join(current_dir, '..'))
 
+# Variables locales (.env) en développement ; en ligne (Vercel) elles viennent du tableau de bord
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
+except Exception:
+    pass
+
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -95,11 +102,12 @@ except ImportError:
 
 # --- CONFIGURATION (chargée depuis .env ou variables d'environnement) ---
 # Identifiants Qobuz officiels. Le token est lié à l'app_id : app_id + secret + token
-# doivent être cohérents. Surcharge possible via variables d'environnement.
-USER_ID      = os.getenv('QOBUZ_USER_ID', '2759740')
-TOKEN        = os.getenv('QOBUZ_TOKEN', 'nIZdVRJBsPsaKMPCl1Mmy_X-A6fE82BHBJRw2omHJjjD8MvVjdotB3uPBxfHn6J9yXY6pjb9s5yNUEe-0h92ww')
-APP_ID       = os.getenv('QOBUZ_APP_ID', '950096963')
-QOBUZ_SECRET = os.getenv('QOBUZ_SECRET', '979549437fcc4a3faad4867b5cd25dcb')
+# doivent être cohérents. Le token et l'ID utilisateur donnent accès au compte : ils viennent
+# UNIQUEMENT de l'environnement (.env en local, tableau de bord Vercel en ligne).
+USER_ID      = os.getenv('QOBUZ_USER_ID') or ''
+TOKEN        = os.getenv('QOBUZ_TOKEN') or ''
+APP_ID       = os.getenv('QOBUZ_APP_ID') or '798273057'
+QOBUZ_SECRET = os.getenv('QOBUZ_SECRET') or 'abb21364945c0583309667d13ca3d93a'
 
 TIDAL_HUND_BASE = "https://api.monochrome.tf"
 
@@ -120,10 +128,10 @@ ELJOHNZC_BASE = (os.getenv('ELJOHNZC_BASE') or "https://eljohnzcaddon.velixir.ru
 # Qualité demandée à l'addon : hires | lossless | high | low (il descend tout seul si indisponible).
 ELJOHNZC_QUALITY = os.getenv('ELJOHNZC_QUALITY') or 'hires'
 
-# MODE TIDAL SEUL (par défaut) : titres, albums et artistes viennent de Tidal, seules les playlists
-# viennent de Deezer ; tout titre d'une autre source est re-cherché sur Tidal à la lecture (sans repli
-# Deezer/Qobuz). TIDAL_ONLY_MODE=0 réactive l'ancien mélange de sources.
-TIDAL_ONLY_MODE = os.getenv('TIDAL_ONLY_MODE', '1') == '1'
+# MODE LOSSLESS (par défaut) : titres, albums et artistes viennent de Qobuz (si configuré) et de
+# Tidal, seules les playlists viennent de Deezer ; tout titre d'une autre source est re-cherché sur
+# Qobuz puis Tidal à la lecture (sans repli Deezer). LOSSLESS_MODE=0 réactive l'ancien mélange.
+LOSSLESS_MODE = os.getenv('LOSSLESS_MODE', '1') == '1'
 
 # Credentials Tidal chargés uniquement depuis les variables d'environnement ou token.json
 FALLBACK_TIDAL_CREDENTIALS = {
@@ -138,10 +146,11 @@ AMAZON_MUSIC_API_BASE = "https://t2tunes.site/api/amazon-music"
 # --- QOBUZ ALTERNATIVE API (source principale : recherche + audio) ---
 # Renvoie une URL CDN directe (redirigeable) : compatible Vercel serverless.
 QOBUZ_ALT_API_BASE = "https://qobuz.kennyy.com.br"
-# EN PAUSE : token officiel refusé (401) et miroir kennyy injoignable → remplacé par l'addon
-# Eljohnzc. Code conservé : repasser à True (ou QOBUZ_ENABLED=1) pour réactiver.
-QOBUZ_ENABLED = os.getenv('QOBUZ_ENABLED', '0') == '1'   # Qobuz : recherche + audio
-QOBUZ_OFFICIAL_ENABLED = QOBUZ_ENABLED  # API Qobuz officielle (token+secret) en priorité ; kennyy = repli
+# Qobuz actif dès qu'un token est fourni (QOBUZ_ENABLED=0 pour le couper).
+QOBUZ_ENABLED = os.getenv('QOBUZ_ENABLED', '1' if TOKEN else '0') == '1'   # Qobuz : recherche + audio
+QOBUZ_OFFICIAL_ENABLED = QOBUZ_ENABLED  # API Qobuz officielle (token+secret)
+# Miroir kennyy : hors service (≈ 20 s avant d'échouer) → coupé par défaut, réactivable
+QOBUZ_ALT_ENABLED = os.getenv('QOBUZ_ALT_ENABLED', '0') == '1'
 
 # --- SQUID.WTF (Amazon Music) API ---
 # EN PAUSE : incompatible Vercel (déchiffrement ffmpeg + flux >4.5 Mo).
@@ -722,15 +731,18 @@ _VARIANT_RE = re.compile(r'\b(remix|live|karaoke|instrumental|cover|acoustic|edi
                          r'originally performed)\b', re.IGNORECASE)
 
 def _tidal_pick_by_ta(title, artist):
-    """Recherche addon par titre+artiste avec correspondance floue (l'addon n'a pas de
-    recherche ISRC). Meilleur score titre+artiste ; à égalité, l'ordre de pertinence de
-    l'addon départage. None si rien ne correspond vraiment (→ repli Deezer)."""
+    """Recherche addon par titre+artiste (l'addon n'a pas de recherche ISRC)."""
+    return _best_match(sync_search_tidal(f"{title} {_primary_artist(artist)}".strip(), 25), title, artist)
+
+def _best_match(candidates, title, artist):
+    """Meilleur résultat titre+artiste (correspondance floue) ; à égalité, l'ordre de pertinence
+    de la source départage. None si rien ne correspond vraiment."""
     t_artists = _artist_forms(artist)
     t_full = _match_str(title); t_base = _base_title(title)
     t_variants = {v.lower() for v in _VARIANT_RE.findall(title or '')}
     best, best_score = None, 0
-    for rec in sync_search_tidal(f"{title} {_primary_artist(artist)}".strip(), 25):
-        r_artists = _artist_forms(rec['performer']['name'])
+    for rec in candidates:
+        r_artists = _artist_forms((rec.get('performer') or {}).get('name') or '')
         a_score = max(_ratio(a, b) for a in t_artists for b in r_artists)
         if a_score < 75:  # « Daft Punk » ≠ « Daft Punk Experience » (61)
             continue
@@ -1794,6 +1806,55 @@ def sync_search_deezer_artists(query, limit=15):
         return results
     except Exception as e: return []
 
+def sync_qobuz_search_all(query, limit_tracks=50, limit_albums=15, limit_artists=10):
+    """UN appel Qobuz (catalog/search) → (titres, albums, artistes)."""
+    if not (QOBUZ_ENABLED and client):
+        return [], [], []
+    try:
+        r = client.api_call("catalog/search", query=query, limit=max(limit_tracks, limit_albums, 20), offset=0)
+    except Exception as e:
+        logger.error(f"[Qobuz Search all] {e}")
+        return [], [], []
+    tracks = (r.get('tracks') or {}).get('items', [])[:limit_tracks]
+    albums = (r.get('albums') or {}).get('items', [])[:limit_albums]
+    for it in tracks:
+        it['source'] = 'qobuz'; fix_qobuz_title(it)
+        it['date'] = it.get('release_date_original') or it.get('released_at')
+    for it in albums:
+        it['source'] = 'qobuz'
+        it['date'] = it.get('release_date_original') or it.get('released_at')
+    artists = []
+    for a in (r.get('artists') or {}).get('items', [])[:limit_artists]:
+        if a.get('id') and a.get('name'):
+            img = a.get('image') or {}
+            pic = img.get('large') or img.get('medium') or a.get('picture') or ''
+            artists.append({'id': str(a['id']), 'name': a['name'], 'image': pic, 'source': 'qobuz', 'type': 'artist'})
+    return tracks, albums, artists
+
+def _track_sig(t):
+    """Signature d'un titre pour repérer le même morceau sur deux sources (« feat. » ignoré,
+    mais pas remix / live / version, qui restent des titres différents)."""
+    title = re.sub(r'\s*[\(\[](?:feat|ft|with)\b[^\)\]]*[\)\]]', '', t.get('title') or '', flags=re.I)
+    title = re.sub(r'\s+(?:-\s+)?(?:feat|ft)\.?\s.*$', '', title, flags=re.I)
+    artist = (t.get('performer') or t.get('artist') or {}).get('name', '')
+    return f"{_match_str(title)}|{_match_str(_primary_artist(artist, aggressive=True))}"
+
+def _album_sig(a):
+    return f"{_match_str(a.get('title'))}|{_match_str((a.get('artist') or {}).get('name'))}"
+
+def _merge_lossless(qobuz_items, tidal_items, sig):
+    """Fusionne Qobuz + Tidal sans doublon : la meilleure profondeur de bits l'emporte, Qobuz à
+    égalité (qualité exacte et lecture directe). L'ordre de pertinence est conservé."""
+    best, order = {}, []
+    for it in list(qobuz_items) + list(tidal_items):
+        s_ = sig(it)
+        cur = best.get(s_)
+        if cur is None:
+            best[s_] = it; order.append(s_)
+        elif (it.get('maximum_bit_depth') or 16) > (cur.get('maximum_bit_depth') or 16):
+            best[s_] = it
+    return [best[k] for k in order]
+
 def sync_qobuz_search_both(query, limit_tracks=50, limit_albums=15):
     """UN SEUL appel Qobuz pour les titres ET les albums (l'API catalog/search renvoie
     déjà les deux). Évite de faire deux fois la même requête à chaque recherche."""
@@ -1837,6 +1898,8 @@ def sync_qobuz_search(query, limit=25, type='track'):
         except Exception as e:
             logger.error(f"[Qobuz Search officiel] {e}")
     # 2. Repli API alt (kennyy)
+    if not QOBUZ_ALT_ENABLED:
+        return []
     try:
         r = HTTP.get(f"{QOBUZ_ALT_API_BASE}/api/get-music",
                          params={'q': query, 'offset': 0}, timeout=15)
@@ -1878,6 +1941,8 @@ def sync_get_qobuz_album(album_id):
         except Exception as e:
             logger.error(f"[Qobuz Album officiel] {e}")
     # 2. Repli API alt (kennyy, album_id = UPC)
+    if not QOBUZ_ALT_ENABLED:
+        return None
     try:
         r = HTTP.get(f"{QOBUZ_ALT_API_BASE}/api/get-album",
                          params={'album_id': album_id}, timeout=15)
@@ -2048,31 +2113,26 @@ def _qobuz_pick_by_isrc(isrc):
     return None
 
 def _qobuz_pick_by_ta(title, artist):
-    """Recherche Qobuz par titre+artiste avec correspondance floue."""
-    target_artist = clean_string(artist); target_title = clean_string(title)
+    """Recherche Qobuz par titre+artiste (même correspondance floue que pour Tidal)."""
     try:
-        for rec in sync_qobuz_search(f"{title} {artist}", limit=5):
-            rec_title = clean_string(rec['title'])
-            rec_artist = clean_string(rec.get('performer', {}).get('name', ''))
-            if FUZZ_AVAILABLE:
-                ok_a = fuzz.ratio(target_artist, rec_artist) > 65
-            else:
-                ok_a = target_artist in rec_artist or rec_artist in target_artist
-            if not ok_a:
-                continue
-            if FUZZ_AVAILABLE:
-                ok_t = fuzz.ratio(target_title, rec_title) > 60
-            else:
-                ok_t = target_title in rec_title or rec_title in target_title
-            if ok_t:
-                rec['source'] = 'qobuz'
-                img = rec.get('album', {}).get('image', {}).get('large')
-                if img:
-                    rec['album']['image']['large'] = img.replace('_300', '_600')
-                return rec
+        rec = _best_match(sync_qobuz_search(f"{title} {_primary_artist(artist)}", limit=15), title, artist)
     except Exception:
-        pass
-    return None
+        return None
+    if rec:
+        rec['source'] = 'qobuz'
+        img = (rec.get('album') or {}).get('image', {}).get('large')
+        if img:
+            rec['album']['image']['large'] = img.replace('_300', '_600')
+    return rec
+
+def _qobuz_resolve_one(title, artist, isrc=None):
+    """Titre sur Qobuz : ISRC exact d'abord, sinon titre + artiste."""
+    if not QOBUZ_ENABLED:
+        return None
+    rec = _qobuz_pick_by_isrc(isrc) if isrc else None
+    if not rec and title and artist:
+        rec = _qobuz_pick_by_ta(title, artist)
+    return rec
 
 def sync_resolve_track(title, artist, isrc=None):
     """Résolution rapide : cache → recherches Qobuz (ISRC + titre/artiste) EN PARALLÈLE
@@ -2095,12 +2155,7 @@ def sync_resolve_track(title, artist, isrc=None):
 def _resolve_track_uncached(title, artist, isrc=None):
     has_ta = bool(title and artist)
 
-    # 0. Addon Eljohnzc (Tidal) : source principale
-    rec_tidal = _tidal_resolve_one(title, artist, isrc)
-    if rec_tidal:
-        return rec_tidal
-
-    # 1+2. Qobuz (si réactivé) : ISRC et titre+artiste lancés EN PARALLÈLE. On rend la main dès que l'ISRC répond
+    # 1+2. Qobuz : ISRC et titre+artiste lancés EN PARALLÈLE. On rend la main dès que l'ISRC répond
     # (le plus fiable) ; on n'attend le second QUE s'il n'a rien donné → pas de temps perdu.
     rec_isrc = rec_ta = None
     if isrc and has_ta:
@@ -2121,6 +2176,13 @@ def _resolve_track_uncached(title, artist, isrc=None):
         return rec_isrc
     if rec_ta:
         return rec_ta
+
+    # 3. Tidal (addon Eljohnzc), si Qobuz n'a pas le titre
+    rec_tidal = _tidal_resolve_one(title, artist, isrc)
+    if rec_tidal:
+        return rec_tidal
+    if LOSSLESS_MODE:
+        return None  # pas de repli Deezer en mode lossless
 
     # Si pas de titre/artiste : tenter Deezer par ISRC puis abandonner
     if not has_ta:
@@ -2258,7 +2320,7 @@ async def get_radio_queue(artist: str, title: str):
     if not artist or not title: raise HTTPException(400, "Missing params")
     # Mode Tidal-only : radio brute YouTube (Automix). La lecture est résolue en Tidal
     # au clic, via /resolve_metadata (voir plus bas). On ne résout donc que le titre joué.
-    if TIDAL_ONLY_MODE:
+    if LOSSLESS_MODE:
         tracks = await run_in_threadpool(sync_get_radio_queue, title, artist)
         if not tracks: raise HTTPException(404, "No results")
         return JSONResponse(tracks)
@@ -2289,23 +2351,40 @@ async def search_tracks(q: str, type: str = 'all'):
     return JSONResponse(payload)
 
 async def _do_search(q: str, type: str = 'all'):
-    # MODE TIDAL : titres + albums + artistes via Tidal, playlists via Deezer (lues via Tidal au clic)
-    if TIDAL_ONLY_MODE:
+    # MODE LOSSLESS : titres + albums + artistes via Qobuz et Tidal (fusionnés sans doublon),
+    # playlists via Deezer (leurs titres sont re-cherchés sur Qobuz/Tidal au clic)
+    if LOSSLESS_MODE:
+        want_t, want_al, want_ar = type in ['track', 'all'], type in ['album', 'all'], type in ['artist', 'all']
         subtasks, kinds = [], []
-        if type in ['track', 'all']:
+        if QOBUZ_ENABLED and (want_t or want_al or want_ar):
+            subtasks.append(run_in_threadpool(sync_qobuz_search_all, q)); kinds.append('qobuz')
+        if want_t:
             subtasks.append(run_in_threadpool(sync_search_tidal, q, 50)); kinds.append('tracks')
-        if type in ['album', 'all']:
+        if want_al:
             subtasks.append(run_in_threadpool(sync_search_tidal_albums, q, 15)); kinds.append('albums')
-        if type in ['artist', 'all']:
+        if want_ar:
             subtasks.append(run_in_threadpool(sync_search_tidal_artists, q, 15)); kinds.append('artists')
         if type in ['playlist', 'all']:
             subtasks.append(run_in_threadpool(sync_search_deezer_playlists, q, 50)); kinds.append('playlists')
         done = await asyncio.gather(*subtasks, return_exceptions=True)
-        res = {'tracks': [], 'albums': [], 'playlists': [], 'artists': []}
+        res = {'tracks': [], 'albums': [], 'playlists': [], 'artists': [], 'qobuz': ([], [], [])}
         for k, r in zip(kinds, done):
-            res[k] = r if isinstance(r, list) else []
-        return {"tracks": res['tracks'], "albums": res['albums'],
-                "external_playlists": res['playlists'], "artists": res['artists']}
+            if k == 'qobuz':
+                res[k] = r if isinstance(r, tuple) else ([], [], [])
+            else:
+                res[k] = r if isinstance(r, list) else []
+        qz_tracks, qz_albums, qz_artists = res['qobuz']
+        tracks = _merge_lossless(qz_tracks, res['tracks'], _track_sig) if want_t else []
+        albums = _merge_lossless(qz_albums, res['albums'], _album_sig) if want_al else []
+        artists = []
+        if want_ar:
+            seen = set()
+            for a in res['artists'] + qz_artists:  # Tidal d'abord (fiches artiste plus complètes)
+                k = _match_str(a['name'])
+                if k not in seen:
+                    seen.add(k); artists.append(a)
+        return {"tracks": tracks, "albums": albums,
+                "external_playlists": res['playlists'], "artists": artists[:15]}
 
     tasks = []
     want_tracks = type in ['track', 'all']
@@ -2457,10 +2536,10 @@ async def get_artist_bio_route(name: str, id: str = None, source: str = None):
 async def get_blind_test_tracks(theme: str = 'Global Hits', limit: int = 5):
     try:
         limit = min(max(limit, 1), 20)
-        # Addon Eljohnzc (Tidal) en priorité, Qobuz seulement s'il est réactivé
-        tracks = await run_in_threadpool(sync_search_tidal, theme, 25)
+        # Qobuz en priorité (lecture directe), Tidal sinon
+        tracks = await run_in_threadpool(sync_qobuz_search, theme, limit * 3) if QOBUZ_ENABLED else []
         if not tracks:
-            tracks = await run_in_threadpool(sync_qobuz_search, theme, limit * 3)
+            tracks = await run_in_threadpool(sync_search_tidal, theme, 25)
         if not tracks: raise HTTPException(404)
         random.shuffle(tracks)
         selection = tracks[:limit]
@@ -2546,8 +2625,6 @@ async def get_deezer_playlist_details_route(id: str):
 
 @app.get('/resolve_stream')
 async def resolve_and_stream(title: str, artist: str):
-    if TIDAL_ONLY_MODE:
-        raise HTTPException(404, "Qobuz/Deezer paused (Tidal-only mode)")
     match = await run_in_threadpool(sync_resolve_track, title, artist)
     if match:
         rid = match['id']
@@ -2558,17 +2635,19 @@ async def resolve_and_stream(title: str, artist: str):
     raise HTTPException(404, "Track not found")
 
 @app.get('/resolve_metadata')
-async def resolve_metadata_route(title: str = '', artist: str = '', isrc: str = None):
+async def resolve_metadata_route(title: str = '', artist: str = '', isrc: str = None, exclude: str = None):
     """
     Retourne l'objet track complet (ID, source, image, etc.).
     Accepte title+artist et/ou isrc (ISRC est prioritaire).
+    exclude=qobuz|tidal_hund : cherche le même titre sur L'AUTRE source (secours quand une
+    source n'arrive pas à lire un titre).
     """
-    # Mode Tidal-only : on résout vers Tidal (ISRC prioritaire), jamais Qobuz
-    if TIDAL_ONLY_MODE:
+    if exclude == 'qobuz':
         match = await run_in_threadpool(_tidal_resolve_one, title, artist, isrc)
-        if match: return JSONResponse(match)
-        raise HTTPException(404, "Not found on Tidal")
-    match = await run_in_threadpool(sync_resolve_track, title, artist, isrc)
+    elif exclude == 'tidal_hund':
+        match = await run_in_threadpool(_qobuz_resolve_one, title, artist, isrc)
+    else:
+        match = await run_in_threadpool(sync_resolve_track, title, artist, isrc)
     if match: return JSONResponse(match)
     raise HTTPException(404, "Not found")
 
@@ -2671,6 +2750,8 @@ def _resolve_qobuz_url(track_id: str):
                     return d['url']
             except: continue
     # 2. Repli API alt (kennyy)
+    if not QOBUZ_ALT_ENABLED:
+        return None
     for fmt in [27, 7, 6, 5]:
         try:
             r = HTTP.get(
@@ -3041,8 +3122,6 @@ async def amazon_proxy(asin: str, request: Request):
 @app.get('/stream_url/{track_id}')
 async def get_stream_url(track_id: str):
     """Retourne l'URL CDN Qobuz en JSON (pour le pré-fetch frontend)."""
-    if TIDAL_ONLY_MODE:
-        raise HTTPException(404, "Qobuz paused (Tidal-only mode)")
     if SQUID_ENABLED and is_asin(track_id):
         return JSONResponse({'url': f"/stream/{track_id}"})
     url = await run_in_threadpool(_resolve_qobuz_url, track_id)
@@ -3052,8 +3131,6 @@ async def get_stream_url(track_id: str):
 
 @app.get('/stream/{track_id}')
 async def stream_track(track_id: str):
-    if TIDAL_ONLY_MODE:
-        raise HTTPException(404, "Qobuz paused (Tidal-only mode)")
     # squid (Amazon Music) en pause : déchiffrement serveur uniquement si réactivé
     if SQUID_ENABLED and is_asin(track_id):
         result = await run_in_threadpool(squid_decrypt_audio, track_id)

@@ -1134,7 +1134,10 @@
             const hires = t.maximum_bit_depth > 16;
             let label = '';
             if (t.source === 'tidal_hund') label = hires ? 'Hi-Res Lossless · FLAC 24 bits' : 'Lossless · FLAC 16 bits';
-            else if (t.source === 'qobuz') label = hires ? 'Hi-Res · FLAC 24 bits' : 'Lossless · FLAC';
+            else if (t.source === 'qobuz') {
+                const sr = parseFloat(t.maximum_sampling_rate);
+                label = (hires ? 'Hi-Res · FLAC 24 bits' : 'Lossless · FLAC 16 bits') + (sr ? ` / ${String(sr).replace('.', ',')} kHz` : '');
+            }
             else if (t.source === 'deezer_flac') label = 'Lossless · FLAC';
             else if (t.source === 'amazon_music') label = 'Amazon Music · FLAC';
             el.innerHTML = label ? `<i class="fas fa-wave-square"></i> ${label}` : '';
@@ -1385,9 +1388,9 @@
             // On capture l'ID original pour la correction Supabase éventuelle
             const oldId = nextTrack.id;
 
-            // Tidal seul : un titre venant d'une autre source (playlist Deezer, radio, classement,
-            // ancien favori…) est cherché sur Tidal avant lecture, sans aucun message.
-            if (nextTrack.source !== 'tidal_hund') {
+            // Qobuz + Tidal : un titre venant d'une autre source (playlist Deezer, radio, classement,
+            // ancien favori…) est cherché sur Qobuz puis Tidal avant lecture, sans aucun message.
+            if (!PLAYABLE_SOURCES.includes(nextTrack.source)) {
                 try {
                     const artist = nextTrack.performer ? nextTrack.performer.name : (nextTrack.artist ? nextTrack.artist.name : 'Inconnu');
                     const resolveParams = new URLSearchParams({ title: nextTrack.title || '', artist, ...(nextTrack.isrc && { isrc: nextTrack.isrc }) });
@@ -1410,7 +1413,7 @@
                         const directId = nextTrack.db_row_id || null;
                         updateFavoriteIfNeeded(oldId, newMeta, directId);
                     } else {
-                        console.warn("[Tidal] Titre introuvable sur Tidal :", nextTrack.title);
+                        console.warn("[Lecture] Titre introuvable sur Qobuz et Tidal :", nextTrack.title);
                     }
                 } catch (e) {
                     if (e && e.name === 'AbortError') return;  // zapping : requête annulée, normal
@@ -1418,8 +1421,8 @@
                 }
             }
 
-            // Pas trouvé sur Tidal : on passe discrètement au titre suivant
-            if (nextTrack.source !== 'tidal_hund') { skipUnplayable(index); return; }
+            // Ni sur Qobuz ni sur Tidal : on passe discrètement au titre suivant
+            if (!PLAYABLE_SOURCES.includes(nextTrack.source)) { skipUnplayable(index); return; }
 
             // Gestion Source AMAZON MUSIC (FLAC chiffré CENC — Shaka déchiffre en ClearKey)
             if (nextTrack.source === 'amazon_music') {
@@ -1464,8 +1467,9 @@
                     if (e && e.name === 'AbortError') return;  // zapping : chargement annulé, normal
                     console.error("Tidal Load Error", e);
                     if (thisLoadId !== currentLoadId) return;
+                    if (await tryOtherSource(index)) return;  // même titre sur Qobuz
                     skipUnplayable(index);
-                    return;  // surtout PAS de repli Qobuz
+                    return;
                 }
             }
             else {
@@ -1681,7 +1685,33 @@
         }
 
         // Titre introuvable ou illisible sur Tidal : on passe discrètement au suivant (aucun message)
-        // Au-delà de 3 titres ignorés d'affilée (Tidal en panne), on s'arrête au lieu de vider la file
+        const PLAYABLE_SOURCES = ['qobuz', 'tidal_hund'];
+
+        // Une source n'arrive pas à lire un titre : on cherche le même sur l'autre (une seule fois,
+        // sans message). Renvoie true si la lecture a été relancée avec l'autre source.
+        async function tryOtherSource(index) {
+            const t = tracks[index];
+            if (!t || t._altTried || !PLAYABLE_SOURCES.includes(t.source)) return false;
+            t._altTried = true;
+            try {
+                const artist = t.performer ? t.performer.name : (t.artist ? t.artist.name : '');
+                const params = new URLSearchParams({ title: t.title || '', artist, exclude: t.source, ...(t.isrc && { isrc: t.isrc }) });
+                const res = await fetch(`${API_BASE}/resolve_metadata?${params}`);
+                if (!res.ok || currentIndex !== index) return false;
+                const m = await res.json();
+                if (!m || !m.id || m.source === t.source || !PLAYABLE_SOURCES.includes(m.source)) return false;
+                console.log(`[Lecture] ${t.source} n'a pas pu lire « ${t.title} » → ${m.source}:${m.id}`);
+                t.id = m.id; t.source = m.source;
+                if (m.maximum_bit_depth) t.maximum_bit_depth = m.maximum_bit_depth;
+                if (m.maximum_sampling_rate) t.maximum_sampling_rate = m.maximum_sampling_rate;
+                loadTrack(index, true, false);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // Au-delà de 3 titres ignorés d'affilée (sources en panne), on s'arrête au lieu de vider la file
         let skipStreak = 0;
         function skipUnplayable(index) {
             console.warn('[Tidal] Titre ignoré (introuvable ou illisible) :', tracks[index] && tracks[index].title);
@@ -1700,8 +1730,9 @@
             const track = tracks[index];
             if (!track) return;
 
-            // Tidal : jamais de repli/réparation Qobuz — un titre Tidal se lit en Tidal ou pas du tout.
-            if (track.source === 'tidal_hund') {
+            // Qobuz / Tidal : on tente le même titre sur l'autre source, sinon titre suivant
+            if (PLAYABLE_SOURCES.includes(track.source)) {
+                if (await tryOtherSource(index)) return;
                 skipUnplayable(index);
                 return;
             }
@@ -1866,6 +1897,7 @@
                 }
             };
             audioObj.onended = () => { if (audioObj === activeAudio && !nextTrackTriggered) handleNext(); };
+            audioObj.addEventListener('playing', () => { skipStreak = 0; });
 
             audioObj.onerror = () => {
                 if (audioObj === activeAudio && audioObj.src) {
