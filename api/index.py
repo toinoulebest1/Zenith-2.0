@@ -120,9 +120,10 @@ ELJOHNZC_BASE = (os.getenv('ELJOHNZC_BASE') or "https://eljohnzcaddon.velixir.ru
 # Qualité demandée à l'addon : hires | lossless | high | low (il descend tout seul si indisponible).
 ELJOHNZC_QUALITY = os.getenv('ELJOHNZC_QUALITY') or 'hires'
 
-# MODE DEBUG : si activé, la recherche ne renvoie QUE du Tidal et Qobuz/Deezer sont coupés.
-# Désactivé : toutes les sources (Qobuz + Deezer + Amazon + Tidal) avec priorité qualité.
-TIDAL_ONLY_MODE = os.getenv('TIDAL_ONLY_MODE', '0') == '1'
+# MODE TIDAL SEUL (par défaut) : titres, albums et artistes viennent de Tidal, seules les playlists
+# viennent de Deezer ; tout titre d'une autre source est re-cherché sur Tidal à la lecture (sans repli
+# Deezer/Qobuz). TIDAL_ONLY_MODE=0 réactive l'ancien mélange de sources.
+TIDAL_ONLY_MODE = os.getenv('TIDAL_ONLY_MODE', '1') == '1'
 
 # Credentials Tidal chargés uniquement depuis les variables d'environnement ou token.json
 FALLBACK_TIDAL_CREDENTIALS = {
@@ -594,7 +595,7 @@ def _tidal_track_obj(t):
     return {
         'id': str(t['id']),
         'title': t.get('title'),
-        'performer': {'name': (t.get('artist') or {}).get('name', 'Inconnu')},
+        'performer': {'name': (t.get('artist') or (t.get('artists') or [{}])[0] or {}).get('name', 'Inconnu')},
         'album': {'title': alb.get('title'), 'image': {'large': tidal_uuid_to_url(alb.get('cover'))}},
         'duration': t.get('duration', 0),
         'isrc': t.get('isrc'),
@@ -623,16 +624,17 @@ def _addon_track_obj(t):
 
 def sync_search_tidal(query, limit=25):
     """Recherche Tidal via l'addon Eljohnzc → objets 'tidal_hund'. Lecture via /tidal_manifest.
-    L'addon renvoie au plus 25 titres (pas de pagination)."""
+    L'addon renvoie au plus 25 titres (pas de pagination). S'il ne répond pas, repli sur l'API
+    Tidal de métadonnées : même catalogue, mêmes ID, donc lisibles dès que l'addon revient."""
+    items = []
     try:
         r = HTTP.get(f"{ELJOHNZC_BASE}/search", params={'q': query}, timeout=12)
-        if r.status_code != 200:
+        if r.status_code == 200:
+            items = (r.json() or {}).get('tracks', []) or []
+        else:
             logger.warning(f"[Tidal Search] HTTP {r.status_code}")
-            return []
-        items = (r.json() or {}).get('tracks', []) or []
     except Exception as e:
         logger.error(f"[Tidal Search] {e}")
-        return []
     out = []
     for t in items:
         obj = _addon_track_obj(t)
@@ -640,7 +642,18 @@ def sync_search_tidal(query, limit=25):
             out.append(obj)
         if len(out) >= limit:
             break
-    return out
+    return out or _hifi_search_tracks(query, limit)
+
+def _hifi_search_tracks(query, limit=25):
+    """Recherche de titres sur l'API Tidal de métadonnées (repli de l'addon)."""
+    try:
+        r = HTTP.get(f"{TIDAL_HIFI_BASE.rstrip('/')}/search/", params={'s': query, 'limit': limit},
+                     headers=_tidal_headers(), timeout=12)
+        items = (r.json().get('data') or {}).get('items', []) or []
+    except Exception as e:
+        logger.error(f"[Tidal Search hifi] {e}")
+        return []
+    return [o for o in (_tidal_track_obj(t) for t in items) if o][:limit]
 
 # --- CACHE DE RÉSOLUTION (clé = isrc, sinon titre|artiste) ---
 # Une piste déjà résolue (favori rejoué, radio, retour arrière, autre utilisateur…) est
@@ -876,6 +889,96 @@ def _sync_search_tidal_DISABLED(query, limit=50):
     # except Exception as e:
     #     logger.error(f"[Tidal Search] Exception: {e}")
     #     return []
+
+def tidal_artist_pic(uuid):
+    """Photo d'artiste Tidal (format carré 750 px, différent des pochettes)."""
+    if not uuid:
+        return ''
+    return f"https://resources.tidal.com/images/{uuid.replace('-', '/')}/750x750.jpg"
+
+def sync_search_tidal_artists(query, limit=15):
+    """Recherche d'artistes Tidal (?a=) → objets artiste 'tidal_hund'."""
+    try:
+        r = HTTP.get(f"{TIDAL_HIFI_BASE.rstrip('/')}/search/",
+                     params={'a': query, 'limit': limit}, headers=_tidal_headers(), timeout=12)
+        items = ((r.json().get('data') or {}).get('artists') or {}).get('items') or []
+    except Exception as e:
+        logger.error(f"[Tidal Artists] {e}")
+        return []
+    out = []
+    for a in items:
+        if not a.get('id') or not a.get('name'):
+            continue
+        image = tidal_artist_pic(a.get('picture')) or (tidal_uuid_to_url(a['selectedAlbumCoverFallback']) if a.get('selectedAlbumCoverFallback') else '')
+        out.append({'id': str(a['id']), 'name': a['name'], 'image': image, 'source': 'tidal_hund', 'type': 'artist'})
+        if len(out) >= limit:
+            break
+    return out
+
+def _tidal_find_artist_id(name):
+    """ID Tidal de l'artiste portant ce nom (correspondance quasi exacte), ou None."""
+    if not name:
+        return None
+    wanted = _artist_forms(name)
+    for a in sync_search_tidal_artists(name, 10):
+        if max(_ratio(w, _match_str(a['name'])) for w in wanted) >= 90:
+            return a['id']
+    return None
+
+def sync_get_tidal_artist(artist_id):
+    """Fiche artiste Tidal : photo, titres populaires (par popularité) et discographie."""
+    base = TIDAL_HIFI_BASE.rstrip('/')
+    f_info = _RESOLVE_POOL.submit(lambda: HTTP.get(f"{base}/artist/", params={'id': artist_id}, headers=_tidal_headers(), timeout=12).json())
+    f_full = _RESOLVE_POOL.submit(lambda: HTTP.get(f"{base}/artist/", params={'f': artist_id}, headers=_tidal_headers(), timeout=20).json())
+    try:
+        info = (f_info.result() or {}).get('artist') or {}
+        full = f_full.result() or {}
+    except Exception as e:
+        logger.error(f"[Tidal Artist] {artist_id}: {e}")
+        return None
+    if not info.get('name'):
+        return None
+
+    # Titres populaires : les plus écoutés, sans doublons (rééditions, versions alternatives)
+    top, seen = [], set()
+    for t in sorted(full.get('tracks') or [], key=lambda x: x.get('popularity') or 0, reverse=True):
+        sig = _base_title(t.get('title'))
+        if not sig or sig in seen:
+            continue
+        obj = _tidal_track_obj(t)
+        if obj:
+            top.append(obj); seen.add(sig)
+        if len(top) >= 10:
+            break
+
+    # Discographie : de la plus récente à la plus ancienne, sans doublons de titre
+    albums, seen = [], set()
+    for a in sorted((full.get('albums') or {}).get('items') or [], key=lambda x: x.get('releaseDate') or '', reverse=True):
+        sig = _match_str(a.get('title'))
+        if not a.get('id') or sig in seen:
+            continue
+        seen.add(sig)
+        tags = (a.get('mediaMetadata') or {}).get('tags') or []
+        albums.append({
+            'id': str(a['id']),
+            'title': a.get('title'),
+            'artist': {'name': info['name']},
+            'image': {'large': tidal_uuid_to_url(a.get('cover'))},
+            'release_date_original': a.get('releaseDate'),
+            'maximum_bit_depth': 24 if ('HIRES_LOSSLESS' in tags or 'MQA' in tags) else 16,
+            'source': 'tidal_hund',
+            'type': 'album',
+        })
+
+    return {
+        'id': str(info.get('id') or artist_id),
+        'name': info['name'],
+        'image': tidal_artist_pic(info.get('picture')),
+        'albums': albums,
+        'top_tracks': top,
+        'bio': '',
+        'source': 'tidal_hund',
+    }
 
 def sync_search_tidal_albums(query, limit=15):
     """Recherche d'albums Tidal via hifi-api (?al=) → objets album 'tidal_hund'."""
@@ -2186,21 +2289,23 @@ async def search_tracks(q: str, type: str = 'all'):
     return JSONResponse(payload)
 
 async def _do_search(q: str, type: str = 'all'):
-    # MODE TIDAL : titres + albums via Tidal, playlists via Deezer (lues via Tidal au clic)
+    # MODE TIDAL : titres + albums + artistes via Tidal, playlists via Deezer (lues via Tidal au clic)
     if TIDAL_ONLY_MODE:
         subtasks, kinds = [], []
         if type in ['track', 'all']:
             subtasks.append(run_in_threadpool(sync_search_tidal, q, 50)); kinds.append('tracks')
         if type in ['album', 'all']:
             subtasks.append(run_in_threadpool(sync_search_tidal_albums, q, 15)); kinds.append('albums')
+        if type in ['artist', 'all']:
+            subtasks.append(run_in_threadpool(sync_search_tidal_artists, q, 15)); kinds.append('artists')
         if type in ['playlist', 'all']:
             subtasks.append(run_in_threadpool(sync_search_deezer_playlists, q, 50)); kinds.append('playlists')
         done = await asyncio.gather(*subtasks, return_exceptions=True)
-        res = {'tracks': [], 'albums': [], 'playlists': []}
+        res = {'tracks': [], 'albums': [], 'playlists': [], 'artists': []}
         for k, r in zip(kinds, done):
             res[k] = r if isinstance(r, list) else []
         return {"tracks": res['tracks'], "albums": res['albums'],
-                "external_playlists": res['playlists'], "artists": []}
+                "external_playlists": res['playlists'], "artists": res['artists']}
 
     tasks = []
     want_tracks = type in ['track', 'all']
@@ -2336,6 +2441,10 @@ async def _do_search(q: str, type: str = 'all'):
 
 @app.get('/artist_bio')
 async def get_artist_bio_route(name: str, id: str = None, source: str = None):
+    tidal_id = id if (source == 'tidal_hund' and id) else await run_in_threadpool(_tidal_find_artist_id, name)
+    if tidal_id:
+        data = await run_in_threadpool(sync_get_tidal_artist, tidal_id)
+        if data: return JSONResponse(data)
     if source == 'deezer' and id:
         data = await run_in_threadpool(sync_get_deezer_artist_by_id, id)
         if data: return JSONResponse(data)
@@ -2465,7 +2574,20 @@ async def resolve_metadata_route(title: str = '', artist: str = '', isrc: str = 
 
 @app.get('/track')
 async def get_track_info(id: str, source: str = None):
-    if source in ('tidal_hund', 'amazon_music'):
+    if source == 'tidal_hund':
+        # Lien partagé d'un titre Tidal : fiche via l'API Tidal de métadonnées
+        def _fetch_tidal_info():
+            try:
+                r = HTTP.get(f"{TIDAL_HIFI_BASE.rstrip('/')}/info/", params={'id': id}, headers=_tidal_headers(), timeout=12)
+                d = r.json() or {}
+                return _tidal_track_obj(d.get('data') or d)
+            except Exception as e:
+                logger.warning(f"[Tidal Info] {id}: {e}")
+                return None
+        res = await run_in_threadpool(_fetch_tidal_info)
+        if res: return JSONResponse(res)
+        raise HTTPException(404)
+    if source == 'amazon_music':
         raise HTTPException(404)
     # squid (ASIN) en pause : seulement si réactivé
     if SQUID_ENABLED and is_asin(id):

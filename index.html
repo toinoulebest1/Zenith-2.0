@@ -1385,10 +1385,9 @@
             // On capture l'ID original pour la correction Supabase éventuelle
             const oldId = nextTrack.id;
 
-            // On résout ce qui est marqué comme "lazy" ou ce qui vient d'une source hors service :
-            // Qobuz étant en pause, un ancien titre Qobuz (favori, playlist) est re-résolu vers
-            // l'addon Tidal avant lecture. On n'exclut que les sources lisibles telles quelles.
-            if (nextTrack.source !== 'amazon_music' && nextTrack.source !== 'deezer_flac' && nextTrack.source !== 'tidal_hund') {
+            // Tidal seul : un titre venant d'une autre source (playlist Deezer, radio, classement,
+            // ancien favori…) est cherché sur Tidal avant lecture, sans aucun message.
+            if (nextTrack.source !== 'tidal_hund') {
                 try {
                     const artist = nextTrack.performer ? nextTrack.performer.name : (nextTrack.artist ? nextTrack.artist.name : 'Inconnu');
                     const resolveParams = new URLSearchParams({ title: nextTrack.title || '', artist, ...(nextTrack.isrc && { isrc: nextTrack.isrc }) });
@@ -1411,13 +1410,16 @@
                         const directId = nextTrack.db_row_id || null;
                         updateFavoriteIfNeeded(oldId, newMeta, directId);
                     } else {
-                        console.warn("❌ Echec résolution métadonnées, tentative de lecture directe...");
+                        console.warn("[Tidal] Titre introuvable sur Tidal :", nextTrack.title);
                     }
                 } catch (e) {
                     if (e && e.name === 'AbortError') return;  // zapping : requête annulée, normal
                     console.error("Resolve error", e);
                 }
             }
+
+            // Pas trouvé sur Tidal : on passe discrètement au titre suivant
+            if (nextTrack.source !== 'tidal_hund') { skipUnplayable(index); return; }
 
             // Gestion Source AMAZON MUSIC (FLAC chiffré CENC — Shaka déchiffre en ClearKey)
             if (nextTrack.source === 'amazon_music') {
@@ -1456,13 +1458,13 @@
                 try {
                     await loadTidalIntoShaka(nextShaka, nextTrack.id, abortSignal);
                     if (thisLoadId !== currentLoadId) return;
+                    skipStreak = 0;
                     console.log("✅ Loaded Tidal (FLAC DASH) for:", nextTrack.title);
                 } catch (e) {
                     if (e && e.name === 'AbortError') return;  // zapping : chargement annulé, normal
                     console.error("Tidal Load Error", e);
                     if (thisLoadId !== currentLoadId) return;
-                    showToast(`❌ Tidal indisponible pour ce titre : ${nextTrack.title}`);
-                    document.getElementById('playIcon').className = 'fas fa-exclamation-triangle';
+                    skipUnplayable(index);
                     return;  // surtout PAS de repli Qobuz
                 }
             }
@@ -1583,7 +1585,6 @@
                     console.error(`[Repair] ❌ Erreur update ${rowId}:`, error);
                 } else if (!updated || updated.length === 0) {
                     console.error(`[Repair] ❌ Update bloqué (0 lignes affectées) pour ${rowId} — vérifiez les politiques RLS Supabase (UPDATE manquant ?)`);
-                    showToast('⚠️ Erreur : mise à jour Supabase bloquée (politique RLS)');
                 } else {
                     console.log(`[Repair] ✅ Ligne ${rowId} mise à jour → ${newMeta.source}:${newMeta.id}`);
                 }
@@ -1679,22 +1680,36 @@
             // cache serveur), donc un pré-appel ne ferait que charger le serveur pour rien.
         }
 
+        // Titre introuvable ou illisible sur Tidal : on passe discrètement au suivant (aucun message)
+        // Au-delà de 3 titres ignorés d'affilée (Tidal en panne), on s'arrête au lieu de vider la file
+        let skipStreak = 0;
+        function skipUnplayable(index) {
+            console.warn('[Tidal] Titre ignoré (introuvable ou illisible) :', tracks[index] && tracks[index].title);
+            nextTrackTriggered = false;
+            isPlaying = false;
+            document.getElementById('playIcon').className = 'fas fa-play';
+            skipStreak++;
+            if (skipStreak < 3 && index < tracks.length - 1) {
+                setTimeout(() => { if (currentIndex === index) loadTrack(index + 1, true, false); }, 400);
+            } else {
+                skipStreak = 0;
+            }
+        }
+
         async function handlePlaybackError(index) {
             const track = tracks[index];
             if (!track) return;
 
             // Tidal : jamais de repli/réparation Qobuz — un titre Tidal se lit en Tidal ou pas du tout.
             if (track.source === 'tidal_hund') {
-                showToast(`❌ Tidal indisponible pour ce titre : ${track.title}`);
-                document.getElementById('playIcon').className = 'fas fa-exclamation-triangle';
+                skipUnplayable(index);
                 return;
             }
 
             // Éviter les boucles infinies
             if (fallbackRetries[index] && fallbackRetries[index] >= 1) {
                 console.warn("Échec définitif du fallback pour ce titre.");
-                showToast(`❌ Titre indisponible : ${track.title}`);
-                document.getElementById('playIcon').className = 'fas fa-exclamation-triangle';
+                document.getElementById('playIcon').className = 'fas fa-play';
 
                 if (tracks.length > 1 && currentIndex < tracks.length - 1) {
                     setTimeout(() => {
@@ -1705,7 +1720,6 @@
             }
 
             fallbackRetries[index] = (fallbackRetries[index] || 0) + 1;
-            showToast("Source corrompue, recherche d'un fallback... 🔍");
 
             const success = await attemptTrackFallback(index);
             if (!success) {
@@ -1742,7 +1756,6 @@
                     // Mise à jour permanente dans Supabase avec db_row_id direct
                     await updateFavoriteIfNeeded(oldId, newMeta, directDbRowId);
 
-                    showToast("Source réparée, reprise... ✨");
                     loadTrack(index, true, false);
                     return true;
                 }
@@ -2021,8 +2034,9 @@
         }
 
         async function openArtistProfile(name, id = null, source = null) {
+            const passId = id && (source === 'deezer' || source === 'tidal_hund');
             let query = `/?artist_profile=${encodeURIComponent(name)}`;
-            if (id && source === 'deezer') query += `&id=${id}&source=${source}`;
+            if (passId) query += `&id=${id}&source=${source}`;
             safePushState({}, "", query);
 
             isLyricsMode = false;
@@ -2052,7 +2066,7 @@
 
             try {
                 let apiUrl = `${API_BASE}/artist_bio?name=${encodeURIComponent(name)}`;
-                if (id && source === 'deezer') apiUrl += `&id=${id}&source=${source}`;
+                if (passId) apiUrl += `&id=${id}&source=${source}`;
 
                 const res = await fetch(apiUrl);
                 const data = await res.json();
