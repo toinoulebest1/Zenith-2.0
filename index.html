@@ -361,6 +361,7 @@
 
             <div class="lyrics-view" id="lyricsView">
                 <div class="lyrics-header-actions">
+                    <a class="lyrics-credit" id="lyricsCredit" target="_blank" rel="noopener" style="display:none;"></a>
                     <button class="translate-btn" id="btnTranslate" onclick="toggleTranslation()">
                         <i class="fas fa-language"></i> Traduire
                     </button>
@@ -728,6 +729,9 @@
         let originalLyricsData = [];
         let translatedLyricsData = [];
         let isTranslated = false;
+        // Paroles enrichies (lrc.red) : source/crédit/traductions, traduction affichée sous les vers,
+        // boucle d'animation mot à mot, pause du défilement auto quand l'utilisateur fait défiler
+        let lyricsMeta = null, lyricsTranslation = null, lyricsRaf = null, lyricsScrollHold = 0;
 
         // --- VARIABLES AUDIO WORKLET ---
         let audioCtx, zenithNode, sourceA, sourceB;
@@ -1276,6 +1280,8 @@
             view.innerHTML = '<div class="lyrics-placeholder" style="animation: pulseText 1.5s infinite;">Recherche des paroles…</div>';
             document.getElementById('introContainer').style.display = 'none';
             lyricsElements = [];
+            lyricsMeta = null; lyricsTranslation = null;
+            setLyricsCredit(null);
         }
 
         // Variable globale pour gérer la concurrence des chargements
@@ -2472,6 +2478,29 @@
             }
         }
 
+        // Crédit de la source des paroles (obligatoire pour lrc.red : lien visible vers le site)
+        function setLyricsCredit(meta) {
+            const el = document.getElementById('lyricsCredit');
+            if (!el) return;
+            const sources = {
+                'lrc.red': { label: 'lrc.red', url: meta && meta.credit_url ? meta.credit_url : 'https://lrc.red' },
+                'LRCLib': { label: 'LRCLib', url: 'https://lrclib.net' },
+                'YouTube': { label: 'YouTube Music', url: 'https://music.youtube.com' },
+            };
+            const src = meta && sources[meta.source];
+            if (!src) { el.style.display = 'none'; return; }
+            el.href = src.url;
+            el.innerHTML = `<i class="fas fa-closed-captioning"></i> Paroles · <b>${src.label}</b>`;
+            el.style.display = '';
+        }
+
+        function renderPlainLyrics(text) {
+            const ld = document.createElement('div');
+            ld.style.cssText = 'white-space:pre-line;font-size:20px;line-height:1.75;font-weight:600;color:rgba(255,255,255,0.86);';
+            ld.textContent = text;
+            document.getElementById('lyricsContent').replaceChildren(ld);
+        }
+
         async function fetchLyrics(t, a, l) {
             try {
                 // Reset state
@@ -2479,6 +2508,7 @@
                 originalLyricsData = [];
                 translatedLyricsData = [];
                 isTranslated = false;
+                lyricsMeta = null; lyricsTranslation = null;
                 document.getElementById('btnTranslate').classList.remove('active');
                 document.getElementById('btnTranslate').innerHTML = '<i class="fas fa-language"></i> Traduire';
 
@@ -2486,19 +2516,31 @@
                 // de la piste précédente (2 appels externes par titre).
                 try { if (window._lyricsAbort) window._lyricsAbort.abort(); } catch (e) {}
                 window._lyricsAbort = new AbortController();
-                const r = await fetch(`${API_BASE}/lyrics?artist=${encodeURIComponent(a)}&title=${encodeURIComponent(t.title)}&album=${encodeURIComponent(l || '')}&duration=${t.duration}`, { signal: window._lyricsAbort.signal });
+                const isrcParam = t.isrc ? `&isrc=${encodeURIComponent(t.isrc)}` : '';
+                const r = await fetch(`${API_BASE}/lyrics?artist=${encodeURIComponent(a)}&title=${encodeURIComponent(t.title)}&album=${encodeURIComponent(l || '')}&duration=${t.duration}${isrcParam}`, { signal: window._lyricsAbort.signal });
                 const d = await r.json();
 
                 if (d.type === 'synced') {
-                    parseLRC(d.lyrics);
+                    if (Array.isArray(d.lines) && d.lines.length) {
+                        // lrc.red : vers avec minutage mot à mot, chœurs, voix et parties
+                        lyricsData = d.lines;
+                        firstLineTime = d.lines[0].time;
+                    } else {
+                        parseLRC(d.lyrics);
+                    }
+                    lyricsMeta = { source: d.source, credit_url: d.credit_url, translations: d.translations || {}, sync: d.sync || 'line', language: d.language || '' };
                     // Sauvegarde pour la traduction
                     originalLyricsData = [...lyricsData];
+                    setLyricsCredit(lyricsMeta);
                     renderSyncedLyrics();
                 } else if (d.type === 'plain') {
                     // Pour le texte brut, on crée un pseudo-objet pour la logique de traduction
                     originalLyricsData = [{ text: d.lyrics, isPlain: true }];
-                    const ld = document.createElement('div'); ld.style.cssText = 'white-space:pre-line;font-size:20px;line-height:1.75;font-weight:600;color:rgba(255,255,255,0.86);'; ld.textContent = d.lyrics; document.getElementById('lyricsContent').replaceChildren(ld);
+                    lyricsMeta = { source: d.source };
+                    setLyricsCredit(lyricsMeta);
+                    renderPlainLyrics(d.lyrics);
                 } else {
+                    setLyricsCredit(null);
                     document.getElementById('lyricsContent').innerHTML = '<div class="lyrics-placeholder"><i class="fas fa-microphone-slash" style="font-size:28px;display:block;margin-bottom:12px;"></i>Pas de paroles trouvées pour ce titre.</div>';
                 }
             } catch (e) {
@@ -2507,50 +2549,47 @@
             }
         }
 
+        // Traduction affichée SOUS chaque vers : la synchro mot à mot de l'original est conservée.
+        // Priorité à la traduction fournie par lrc.red (si elle existe en français), sinon traduction automatique.
         async function toggleTranslation() {
+            const btn = document.getElementById('btnTranslate');
+            const isPlain = originalLyricsData.length > 0 && originalLyricsData[0].isPlain;
+            if (!originalLyricsData.length) return;
+
             if (isTranslated) {
                 // Revenir à l'original
                 isTranslated = false;
-                lyricsData = [...originalLyricsData];
-                document.getElementById('btnTranslate').classList.remove('active');
-                document.getElementById('btnTranslate').innerHTML = '<i class="fas fa-language"></i> Traduire';
-
-                if (lyricsData.length > 0 && lyricsData[0].isPlain) {
-                    const lt = document.createElement('div'); lt.style.cssText = 'white-space:pre-line;font-size:20px;line-height:1.75;font-weight:600;color:rgba(255,255,255,0.86);'; lt.textContent = lyricsData[0].text; document.getElementById('lyricsContent').replaceChildren(lt);
-                } else {
-                    renderSyncedLyrics();
-                }
+                btn.classList.remove('active');
+                btn.innerHTML = '<i class="fas fa-language"></i> Traduire';
+                if (isPlain) renderPlainLyrics(originalLyricsData[0].text);
+                else { lyricsTranslation = null; renderSyncedLyrics(); }
                 return;
             }
 
             // Activer la traduction
-            const btn = document.getElementById('btnTranslate');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
 
             try {
                 // Si on a déjà traduit, on utilise le cache
-                if (translatedLyricsData.length > 0) {
-                    lyricsData = [...translatedLyricsData];
-                } else {
-                    // Sinon on appelle l'API
-                    // Préparation des lignes à traduire
-                    const linesToTranslate = originalLyricsData.map(l => l.text);
-
-                    const res = await fetch(`${API_BASE}/translate_lines`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lines: linesToTranslate, target: 'fr' })
-                    });
-
-                    const data = await res.json();
-
-                    if (data.translated) {
-                        // Reconstruction des données
-                        translatedLyricsData = originalLyricsData.map((l, i) => ({
-                            ...l,
-                            text: data.translated[i] || l.text // Fallback si manque de ligne
-                        }));
-                        lyricsData = [...translatedLyricsData];
+                if (!translatedLyricsData.length) {
+                    const offered = !isPlain && lyricsMeta && lyricsMeta.translations ? Object.entries(lyricsMeta.translations) : [];
+                    let provided = offered.find(([lang]) => lang.toLowerCase().startsWith('fr'));
+                    // Chanson déjà en français : on montre la traduction fournie (souvent l'anglais)
+                    // plutôt qu'une traduction « français → français »
+                    if (!provided && (lyricsMeta.language || '').startsWith('fr') && offered.length) provided = offered[0];
+                    if (provided) {
+                        translatedLyricsData = originalLyricsData.map(l => (l.key && provided[1][l.key]) || '');
+                    } else {
+                        // Sinon on appelle l'API
+                        const linesToTranslate = originalLyricsData.map(l => l.text);
+                        const res = await fetch(`${API_BASE}/translate_lines`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ lines: linesToTranslate, target: 'fr' })
+                        });
+                        const data = await res.json();
+                        if (!data.translated) throw new Error(data.error || 'traduction vide');
+                        translatedLyricsData = originalLyricsData.map((l, i) => data.translated[i] || '');
                     }
                 }
 
@@ -2558,11 +2597,8 @@
                 btn.classList.add('active');
                 btn.innerHTML = '<i class="fas fa-check"></i> Original';
 
-                if (lyricsData.length > 0 && lyricsData[0].isPlain) {
-                    const lt = document.createElement('div'); lt.style.cssText = 'white-space:pre-line;font-size:20px;line-height:1.75;font-weight:600;color:rgba(255,255,255,0.86);'; lt.textContent = lyricsData[0].text; document.getElementById('lyricsContent').replaceChildren(lt);
-                } else {
-                    renderSyncedLyrics();
-                }
+                if (isPlain) renderPlainLyrics(translatedLyricsData[0] || originalLyricsData[0].text);
+                else { lyricsTranslation = translatedLyricsData; renderSyncedLyrics(); }
 
             } catch (e) {
                 console.error("Traduction error:", e);
@@ -2573,23 +2609,100 @@
 
         function parseLRC(l) { if (!l) return; try { const ls = l.split('\n'), rx = /^\[(\d{2}):(\d{2})[.:](\d{2,3})\](.*)/; lyricsData = []; ls.forEach(x => { const m = x.match(rx); if (m) { const s = parseInt(m[1]) * 60 + parseInt(m[2]) + (m[3].length === 2 ? parseInt(m[3]) / 100 : parseInt(m[3]) / 1000); lyricsData.push({ time: s, text: m[4].trim() }); } }); if (lyricsData.length > 0) firstLineTime = lyricsData[0].time; } catch (e) { } }
 
+        // Mots d'un vers : les syllabes collées (sans espace) sont regroupées pour ne jamais être
+        // coupées en fin de ligne ; chaque mot/syllabe garde son minutage pour le remplissage.
+        function buildLyricWords(container, words) {
+            const out = [];
+            let group = null;
+            words.forEach(w => {
+                if (!group) { group = document.createElement('span'); group.className = 'lwg'; container.appendChild(group); }
+                const el = document.createElement('span');
+                el.className = 'lw';
+                el.textContent = w.t;
+                group.appendChild(el);
+                out.push({ el, s: w.s, e: w.e, p: -1, on: false });
+                if (w.sp) { container.appendChild(document.createTextNode(' ')); group = null; }
+            });
+            return out;
+        }
+
         function renderSyncedLyrics() {
             if (!isLyricsMode || !lyricsData.length) return;
             const c = document.getElementById('lyricsContent');
             c.innerHTML = '';
-            const s = document.createElement('div'); s.style.height = "40vh"; c.appendChild(s);
+            const s = document.createElement('div'); s.style.height = "36vh"; c.appendChild(s);
             // Optimization: Store elements in array to avoid repeated querySelectorAll
             lyricsElements = [];
+
+            // Passage instrumental (intro ou pause > 6 s) : trois points qui s'allument
+            const addGap = (from, to) => {
+                const g = document.createElement('div');
+                g.className = 'lyric-gap';
+                g.innerHTML = '<span></span><span></span><span></span>';
+                c.appendChild(g);
+                lyricsElements.push({ el: g, time: from, end: to, gap: true });
+            };
+            if (lyricsData[0].end != null && lyricsData[0].time > 5) addGap(0, lyricsData[0].time);
+
             lyricsData.forEach((l, i) => {
                 const d = document.createElement('div');
                 d.className = 'lyric-line';
                 d.id = `line-${i}`;
-                d.innerText = l.text;
-                d.onclick = () => { activeAudio.currentTime = l.time; play(); };
+                if (l.alt) d.classList.add('alt');
+                if (l.part && i > 0) d.classList.add('section-start');
+
+                const main = document.createElement('div');
+                main.className = 'lyric-main';
+                let words = null, bg = null;
+                if (Array.isArray(l.words) && l.words.length) {
+                    d.classList.add('has-words');
+                    words = buildLyricWords(main, l.words);
+                } else {
+                    main.textContent = l.text;
+                }
+                d.appendChild(main);
+
+                if (Array.isArray(l.bg) && l.bg.length) {
+                    const b = document.createElement('div');
+                    b.className = 'lyric-bg';
+                    bg = buildLyricWords(b, l.bg);
+                    d.appendChild(b);
+                }
+                if (lyricsTranslation && lyricsTranslation[i]) {
+                    const tr = document.createElement('div');
+                    tr.className = 'lyric-tr';
+                    tr.textContent = lyricsTranslation[i];
+                    d.appendChild(tr);
+                }
+
+                d.onclick = () => { lyricsScrollHold = 0; activeAudio.currentTime = l.time; play(); };
                 c.appendChild(d);
-                lyricsElements.push({ el: d, time: l.time });
+                lyricsElements.push({ el: d, time: l.time, end: l.end, words, bg });
+
+                const next = lyricsData[i + 1];
+                if (next && l.end != null && next.time - l.end > 6) addGap(l.end, next.time);
             });
             const b = document.createElement('div'); b.style.height = "40vh"; c.appendChild(b);
+            syncLyricsUI();
+        }
+
+        // Remplissage d'un mot : 0 → 100 % entre son début et sa fin (écrit seulement si ça change)
+        function paintLyricWords(list, t) {
+            if (!list) return;
+            for (const w of list) {
+                const p = t <= w.s ? 0 : t >= w.e ? 100 : Math.round((t - w.s) / (w.e - w.s) * 100);
+                if (p !== w.p) { w.p = p; w.el.style.setProperty('--p', p + '%'); }
+                const on = p > 0;
+                if (on !== w.on) { w.on = on; w.el.classList.toggle('on', on); }
+            }
+        }
+
+        // Boucle d'animation (60 i/s) seulement pendant la lecture, paroles affichées et mot à mot
+        function lyricsTick() {
+            if (!isLyricsMode || !lyricsElements.length || document.hidden) { lyricsRaf = null; return; }
+            lyricsRaf = -1;  // boucle en cours : syncLyricsUI ne doit pas en lancer une seconde
+            syncLyricsUI();
+            lyricsRaf = activeAudio.paused ? null : requestAnimationFrame(lyricsTick);
         }
 
         function syncLyricsUI() {
@@ -2607,17 +2720,30 @@
             }
 
             // Mise à jour visuelle uniquement si changement
-            const currentActive = document.querySelector('.lyric-line.active');
-            const targetEl = activeIdx !== -1 ? lyricsElements[activeIdx].el : null;
+            const entry = activeIdx !== -1 ? lyricsElements[activeIdx] : null;
+            const currentActive = document.querySelector('#lyricsContent > .active');
+            const targetEl = entry ? entry.el : null;
 
             if (currentActive !== targetEl) {
                 if (currentActive) currentActive.classList.remove('active');
                 if (targetEl) {
                     targetEl.classList.add('active');
-                    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                    // Pas de recentrage pendant que l'utilisateur fait défiler lui-même
+                    if (Date.now() > lyricsScrollHold) targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
                 }
             }
+
+            if (entry) {
+                if (entry.gap) entry.el.style.setProperty('--p', Math.min(1, Math.max(0, (t - entry.time) / (entry.end - entry.time))).toFixed(3));
+                paintLyricWords(entry.words, t);
+                paintLyricWords(entry.bg, t);
+            }
+            // Mot à mot : la boucle prend le relais entre deux « timeupdate » (4 par seconde seulement)
+            if (lyricsMeta && lyricsMeta.sync === 'word' && !lyricsRaf && !activeAudio.paused) lyricsRaf = requestAnimationFrame(lyricsTick);
         }
+
+        // Défilement manuel des paroles : on suspend le recentrage automatique quelques secondes
+        ['wheel', 'touchmove'].forEach(ev => document.getElementById('lyricsView').addEventListener(ev, () => { lyricsScrollHold = Date.now() + 3500; }, { passive: true }));
 
         window.onpopstate = async (e) => { const p = new URLSearchParams(window.location.search); if (p.get('artist_profile')) await openArtistProfile(p.get('artist_profile'), p.get('id'), p.get('source')); else if (p.get('artist')) await openArtist(p.get('artist')); else if (p.get('album')) await openAlbum(p.get('album'), p.get('source')); else if (p.get('q')) { document.getElementById('searchInput').value = p.get('q'); await performSearch(); } else goHome(false); };
         window.onload = async () => {

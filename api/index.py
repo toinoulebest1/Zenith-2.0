@@ -3445,13 +3445,214 @@ async def tidal_proxy(url: str, request: Request):
     return Response(content=r.content, status_code=r.status_code,
                     media_type=r.headers.get('Content-Type', 'audio/mp4'), headers=headers)
 
+# --- LRC.RED (paroles synchronisées mot à mot, source principale) ---
+# Conditions d'utilisation : s'identifier via le User-Agent (lien + e-mail de contact) et
+# créditer lrc.red avec un lien partout où ses paroles sont affichées (fait côté interface).
+LRCRED_BASE = "https://lrc.red"
+LRCRED_SITE = os.getenv('LRCRED_SITE') or ''        # URL publique du site (ex : https://zenith.vercel.app)
+LRCRED_CONTACT = os.getenv('LRCRED_CONTACT') or ''  # e-mail de contact demandé par lrc.red
+LRCRED_UA = "Zenith/1.0 (" + "; ".join(x for x in ["lecteur de musique", ("+" + LRCRED_SITE) if LRCRED_SITE else "", LRCRED_CONTACT] if x) + ")"
+_lrcred_cache: dict = {}        # clé -> (résultat ou None, ts)
+LRCRED_TTL = 12 * 3600
+LRCRED_NEG_TTL = 3600
+LRCRED_CACHE_MAX = 400
+
+_TT_NS = "{http://www.w3.org/ns/ttml}"
+_TTM_NS = "{http://www.w3.org/ns/ttml#metadata}"
+_LRC_NS = "{http://lrc.red/lyric-ttml-internal}"
+_XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+
+def _lrcred_get(path, timeout=8):
+    return HTTP.get(f"{LRCRED_BASE}{path}", headers={'User-Agent': LRCRED_UA}, timeout=timeout)
+
+def _ttml_time(v):
+    """'27.395' | '1:00.964' | '1:02:03.5' → secondes."""
+    if not v:
+        return None
+    try:
+        sec = 0.0
+        for part in str(v).strip().split(':'):
+            sec = sec * 60 + float(part)
+        return round(sec, 3)
+    except ValueError:
+        return None
+
+def _ttml_words(el, words, keep_bg):
+    """Parcourt un élément et ajoute ses <span begin end> (mots / syllabes) dans l'ordre.
+    Les espaces entre spans indiquent une fin de mot ; deux spans collés = syllabes d'un même mot."""
+    for child in el:
+        is_bg = child.get(_TTM_NS + 'role') == 'x-bg'
+        if is_bg and not keep_bg:
+            pass
+        elif child.get('begin') is not None and len(child) == 0:
+            words.append({'t': child.text or '', 's': _ttml_time(child.get('begin')), 'e': _ttml_time(child.get('end'))})
+        else:
+            _ttml_words(child, words, keep_bg)
+        tail = child.tail or ''
+        if words and tail:
+            if tail.strip():
+                words[-1]['t'] += tail.rstrip()
+            if tail[-1:].isspace():
+                words[-1]['sp'] = 1
+
+def _ttml_text(el):
+    """Texte d'un élément sans les chœurs (x-bg)."""
+    out = [el.text or '']
+    for child in el:
+        if child.get(_TTM_NS + 'role') != 'x-bg':
+            out.append(_ttml_text(child))
+        out.append(child.tail or '')
+    return ''.join(out)
+
+def _words_text(words):
+    return ''.join(w['t'] + (' ' if w.get('sp') else '') for w in words).strip()
+
+def _parse_lrcred_ttml(xml_text):
+    """TTML lrc.red → {'sync', 'lines', 'translations'} (mots, chœurs, voix, parties)."""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(xml_text)
+    timing = (root.get(_LRC_NS + 'timing') or '').lower()
+
+    # Voix : la 2e personne d'un duo est alignée à droite dans l'interface
+    persons = [a.get('{http://www.w3.org/XML/1998/namespace}id') for a in root.iter(_TTM_NS + 'agent') if a.get('type') == 'person']
+    alt_agent = persons[1] if len(persons) > 1 else None
+
+    translations = {}
+    for tr in root.iter(_LRC_NS + 'translation'):
+        lang = tr.get(_XML_LANG) or ''
+        texts = {t.get('for'): _ttml_text(t).strip() for t in tr.iter(_LRC_NS + 'text') if t.get('for')}
+        if lang and texts:
+            translations[lang] = texts
+
+    lines = []
+    body = root.find(_TT_NS + 'body')
+    if body is None:
+        return None
+    for div in body.iter(_TT_NS + 'div'):
+        part = div.get(_LRC_NS + 'songPart')
+        for i, pel in enumerate(div.findall(_TT_NS + 'p')):
+            start = _ttml_time(pel.get('begin'))
+            if start is None:
+                continue
+            words = []
+            _ttml_words(pel, words, keep_bg=False)
+            bg = []
+            for bg_el in pel.iter(_TT_NS + 'span'):
+                if bg_el.get(_TTM_NS + 'role') == 'x-bg':
+                    _ttml_words(bg_el, bg, keep_bg=True)
+            line = {
+                'time': start,
+                'end': _ttml_time(pel.get('end')),
+                'text': _words_text(words) if words else ' '.join(_ttml_text(pel).split()),
+                'key': pel.get(_LRC_NS + 'key'),
+            }
+            if words:
+                line['words'] = words
+            if bg:
+                line['bg'] = bg
+            if alt_agent and pel.get(_TTM_NS + 'agent') == alt_agent:
+                line['alt'] = 1
+            if i == 0 and part:
+                line['part'] = part
+            if line['text'] or bg:
+                lines.append(line)
+    if not lines:
+        return None
+    has_words = any(l.get('words') for l in lines)
+    return {'sync': 'word' if (has_words or timing == 'word') else 'line', 'lines': lines, 'translations': translations}
+
+def _lrcred_pick(hits, title, artist, duration):
+    """Meilleur résultat de recherche : titre + artiste, et durée proche (évite remix / live)."""
+    t_artists = _artist_forms(artist)
+    t_full = _match_str(title); t_base = _base_title(title)
+    t_variants = {v.lower() for v in _VARIANT_RE.findall(title or '')}
+    best, best_score = None, 0
+    for h in hits:
+        a_score = max(_ratio(a, b) for a in t_artists for b in _artist_forms(h.get('artist') or ''))
+        if a_score < 60:
+            continue
+        t_score = _ratio(t_base, _base_title(h.get('title') or ''))
+        if t_score < 70:
+            continue
+        score = (a_score + t_score) / 2
+        if _match_str(h.get('title')) == t_full:
+            score += 5
+        score -= 10 * len({v.lower() for v in _VARIANT_RE.findall(h.get('title') or '')} - t_variants)
+        if duration and h.get('duration'):
+            diff = abs(float(h['duration']) - float(duration))
+            score += 8 if diff <= 2 else (0 if diff <= 6 else -25)
+        if score > best_score:
+            best, best_score = h, score
+    return best
+
+def _lrcred_fetch(isrc):
+    """Fiche + TTML d'un ISRC → paroles prêtes pour l'interface, ou None."""
+    meta = _lrcred_get(f"/s/{urllib.parse.quote(isrc)}.json")
+    if meta.status_code != 200:
+        return None
+    m = meta.json()
+    if not m.get('sync') or not (m.get('files') or {}).get('ttml'):
+        return None  # paroles non synchronisées : on laisse LRCLib / YouTube
+    r = _lrcred_get(f"/s/{urllib.parse.quote(isrc)}.ttml", timeout=10)
+    if r.status_code != 200:
+        return None
+    parsed = _parse_lrcred_ttml(r.text)
+    if not parsed:
+        return None
+    lrc = '\n'.join(f"[{int(l['time'] // 60):02d}:{l['time'] % 60:05.2f}]{l['text']}" for l in parsed['lines'])
+    return {
+        'type': 'synced', 'sync': parsed['sync'], 'lines': parsed['lines'], 'lyrics': lrc,
+        'translations': parsed['translations'], 'language': m.get('language'),
+        'source': 'lrc.red', 'credit_url': m.get('page') or f"{LRCRED_BASE}/s/{isrc}",
+    }
+
+def sync_lrcred_lyrics(title, artist, duration=0, isrc=None):
+    """Paroles lrc.red : ISRC direct si connu, sinon recherche titre + artiste (résultat en cache)."""
+    key = f"isrc:{isrc.upper()}" if isrc else f"ta:{_match_str(title)}|{_match_str(_primary_artist(artist))}|{int(duration or 0) // 5}"
+    hit = _lrcred_cache.get(key)
+    if hit and (time.time() - hit[1]) < (LRCRED_TTL if hit[0] else LRCRED_NEG_TTL):
+        return hit[0]
+    res = None
+    try:
+        if isrc:
+            res = _lrcred_fetch(isrc)
+        if not res and title and artist:
+            queries = [f"{title} {_primary_artist(artist)}"]
+            base = re.sub(r'\s*[\(\[].*?[\)\]]', '', title).strip()
+            if base and base.lower() != title.lower():
+                queries.append(f"{base} {_primary_artist(artist)}")
+            for q in queries:
+                r = _lrcred_get(f"/search.json?q={urllib.parse.quote(q)}")
+                hits = (r.json() or {}).get('hits') or [] if r.status_code == 200 else []
+                pick = _lrcred_pick(hits, title, artist, duration)
+                if pick and pick.get('isrc'):
+                    res = _lrcred_fetch(pick['isrc'])
+                    if res:
+                        break
+    except Exception as e:
+        logger.warning(f"[lrc.red] {title} / {artist}: {e}")
+        return None  # erreur réseau : pas de cache négatif
+    if len(_lrcred_cache) >= LRCRED_CACHE_MAX:
+        try:
+            del _lrcred_cache[min(_lrcred_cache, key=lambda k: _lrcred_cache[k][1])]
+        except Exception:
+            _lrcred_cache.clear()
+    _lrcred_cache[key] = (res, time.time())
+    return res
+
 @app.get('/lyrics')
-async def get_lyrics(artist: str, title: str, album: str = None, duration: str = None):
-    # Les deux fournisseurs (YouTube + LRCLib) sont interrogés EN PARALLÈLE au lieu d'être
-    # enchaînés : le temps total = le plus lent des deux, au lieu de leur somme.
+async def get_lyrics(artist: str, title: str, album: str = None, duration: str = None, isrc: str = None):
+    # lrc.red (mot à mot) est prioritaire ; YouTube + LRCLib partent EN PARALLÈLE en secours,
+    # pour ne pas perdre de temps si lrc.red n'a pas le titre.
     dur = parse_duration(duration)
+    _red_task = asyncio.create_task(run_in_threadpool(sync_lrcred_lyrics, title, artist, dur, isrc))
     _yt_task = asyncio.create_task(run_in_threadpool(sync_search_yt_lyrics, title, artist))
     _lrc_task = asyncio.create_task(run_in_threadpool(lyrics_engine.search_lyrics, artist, title, album, dur))
+    try: red = await _red_task
+    except Exception: red = None
+    if red:
+        _yt_task.cancel(); _lrc_task.cancel()
+        return JSONResponse(red)
     try: yt_res = await _yt_task
     except Exception: yt_res = None
     if yt_res and yt_res['type'] == 'synced':

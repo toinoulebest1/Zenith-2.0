@@ -31,7 +31,7 @@
 ### 3. External Integrations
 *   **Tidal (source principale):** Eljohnzc addon (`ELJOHNZC_BASE`). `/search?q=` returns tracks with Tidal IDs; `/stream/{id}?quality=` returns a DASH manifest URL. The backend serves it through `/tidal_manifest/{id}` (Shaka) and segments go through `/tidal_proxy`. Tracks use `source: 'tidal_hund'`.
 *   **Qobuz:** Paused (`QOBUZ_ENABLED=0`). Requires valid `app_id`, `user_id`, and `token` when re-enabled. Use `qobuz_api.py` wrapper.
-*   **Lyrics:** Prioritize synced lyrics from LRCLib.
+*   **Lyrics:** lrc.red first (word-level TTML parsed server-side in `sync_lrcred_lyrics`; set `LRCRED_SITE` / `LRCRED_CONTACT` to identify the app as their terms require, and always show the visible `#lyricsCredit` link to lrc.red when its lyrics are displayed). YouTube Music and LRCLib remain fallbacks.
 *   **Images:** Tidal images are constructed via UUID; Qobuz images via URL replacement (`_600` vs `_300`).
 
 ### 4. Styling
